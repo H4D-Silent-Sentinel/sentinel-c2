@@ -8,6 +8,7 @@
   :root { --bg:#0d1216; --panel:#141b21; --panel2:#19222a; --fg:#e4eaee; --muted:#8d9ba6; --line:#25313a;
           --scope:#061a10; --grid:#1d4a32; --sweep:#3fe08a; --plot:#7dffb0; --weak:#5b8f72; --track:#ff9f1c; --down:#e5484d; }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
     font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
   header { display: flex; align-items: baseline; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
@@ -40,7 +41,7 @@
 <header>
   <h1>SILENT SENTINEL · RADAR</h1>
   <span class="site" id="site">connecting…</span>
-  <nav><a href="/">All sensors</a><a href="/radar" aria-current="page">Radar scope</a></nav>
+  <nav><a href="/">All sensors</a><a href="/radar" aria-current="page">Radar scope</a><a href="/camera">Camera</a></nav>
   <span class="clock" id="clock"></span>
 </header>
 <main>

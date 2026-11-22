@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Silent Sentinel · Camera</title>
+<style>
+  :root { --bg:#0d1216; --panel:#141b21; --panel2:#19222a; --fg:#e4eaee; --muted:#8d9ba6; --line:#25313a;
+          --ok:#3fb96b; --alert:#ff9f1c; --down:#e5484d; --accent:#6ea8ff; }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  body { display: flex; flex-direction: column; }
+  header { display: flex; align-items: baseline; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+  header h1 { margin: 0; font-size: 16px; letter-spacing: .04em; }
+  nav { margin-left: auto; display: flex; gap: 4px; }
+  nav a { color: var(--muted); text-decoration: none; padding: 3px 10px; border-radius: 6px; border: 1px solid transparent; }
+  nav a:hover { color: var(--fg); border-color: var(--line); }
+  nav a[aria-current] { color: var(--fg); background: var(--panel2); border-color: var(--line); }
+  .clock { margin-left: 12px; font-family: ui-monospace, Menlo, monospace; color: var(--muted); }
+  #bar { display: flex; align-items: center; gap: 14px; padding: 10px 20px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); display: inline-block; margin-right: 6px; }
+  .ok { background: var(--ok); } .warn { background: var(--alert); } .bad { background: var(--down); }
+  .pill { display: inline-flex; align-items: center; color: var(--muted); }
+  .pill b { color: var(--fg); font-weight: 500; margin-left: 4px; }
+  button { font: inherit; font-weight: 600; color: #0d1216; background: var(--accent); border: 0; border-radius: 8px; padding: 8px 16px; cursor: pointer; }
+  button.secondary { background: var(--panel2); color: var(--fg); border: 1px solid var(--line); font-weight: 500; padding: 5px 12px; }
+  button:disabled { opacity: .5; cursor: default; }
+  #view { flex: 1; min-height: 0; position: relative; }
+  iframe { width: 100%; height: 100%; border: 0; display: block; background: #fff; }
+  #start { max-width: 620px; margin: 8vh auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 26px 28px; }
+  #start h2 { margin: 0 0 6px; font-size: 22px; }
+  #start p { color: var(--muted); margin: 8px 0 18px; }
+  #start ol { color: var(--muted); padding-left: 20px; margin: 18px 0 0; }
+  #start li { margin: 4px 0; }
+  #msg { margin-top: 14px; color: var(--alert); }
+  #msg.bad { color: var(--down); background: none; }
+  code { background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; font-size: 12px; color: var(--fg); }
+</style>
+</head>
+<body>
+<header>
+  <h1>SILENT SENTINEL · CAMERA</h1>
+  <nav><a href="/">All sensors</a><a href="/radar">Radar scope</a><a href="/camera" aria-current="page">Camera</a></nav>
+  <span class="clock" id="clock"></span>
+</header>
+
+<div id="bar" hidden>
+  <span class="pill"><span class="dot" id="dRun"></span>Camera tracker<b id="tRun">—</b></span>
+  <span class="pill"><span class="dot" id="dSend"></span>Sending to C2<b id="tSend">—</b></span>
+  <span class="pill"><span class="dot" id="dC2"></span>C2 hears it<b id="tC2">—</b></span>
+  <button class="secondary" id="linkBtn" hidden>Turn on sending</button>
+  <span style="margin-left:auto;color:var(--muted)">In the tracker: pick the camera, then set <b style="color:var(--fg);font-weight:500">Camera faces</b> to your compass heading.</span>
+</div>
+
+<div id="view">
+  <div id="start">
+    <h2>Camera tracker is off</h2>
+    <p>Starts Visual-Tracker (the YOLO v4 drone detector) and connects it to this C2. Its live view will show here.</p>
+    <button id="startBtn">Start camera tracker</button>
+    <div id="msg" role="status" aria-live="polite"></div>
+    <ol>
+      <li>A Terminal window opens for the tracker. Leave it open; closing it stops the tracker.</li>
+      <li>The first time, macOS asks for camera access for <b>Visual Tracker</b>. Allow it.</li>
+      <li>When it's ready (about a minute), this page switches to the camera view and sending to the C2 turns on by itself.</li>
+    </ol>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let shown = false, url = null;
+
+function set(dot, txt, cls, text) { $(dot).className = 'dot ' + cls; $(txt).textContent = text; }
+
+function render(s) {
+  url = s.url;
+  if (s.running) {
+    $('bar').hidden = false;
+    set('dRun', 'tRun', 'ok', 'running');
+    set('dSend', 'tSend', s.sending ? 'ok' : 'warn', s.sending ? `yes, as ${s.src || 'post-1'}` : 'no');
+    set('dC2', 'tC2', s.c2_up ? 'ok' : (s.sending ? 'warn' : ''), s.c2_up ? 'yes' : (s.sending ? 'waiting…' : '—'));
+    $('linkBtn').hidden = !!s.sending;
+    if (!shown) {
+      $('view').innerHTML = `<iframe src="${s.url}/#live" title="Visual-Tracker live view" allow="camera"></iframe>`;
+      shown = true;
+    }
+    return;
+  }
+  if (shown) { location.reload(); return; }  // tracker stopped: back to the start card
+  const btn = $('startBtn'), msg = $('msg');
+  btn.disabled = !s.can_start || s.state === 'starting';
+  btn.textContent = s.state === 'starting' ? 'Starting…' : 'Start camera tracker';
+  msg.className = s.problem || s.state === 'failed' ? 'bad' : '';
+  msg.innerHTML = s.problem ? s.problem.replace(/: (python3 .*)$/, ': <code>$1</code>')
+    : !s.can_start ? 'Starting it from here only works on the Mac running the C2. Start Visual-Tracker by hand, then this page shows it.'
+    : s.message || '';
+}
+
+async function tick() {
+  try { render(await (await fetch('/api/tracker', {cache: 'no-store'})).json()); }
+  catch (e) { $('msg') && ($('msg').textContent = 'No connection to the C2.'); }
+  $('clock').textContent = new Date().toLocaleTimeString();
+}
+$('startBtn').onclick = async () => {
+  $('startBtn').disabled = true;
+  render(await (await fetch('/api/tracker/start', {method: 'POST'})).json());
+};
+$('linkBtn').onclick = async () => render(await (await fetch('/api/tracker/link', {method: 'POST'})).json());
+tick(); setInterval(tick, 1500);
+</script>
+</body>
+</html>

@@ -25,8 +25,9 @@ def cmd_run(a):
         _outputs(SimpleNamespace(map=a.map, map_port=a.map_port, cot=a.cot), hub.base)
     hub.start()
     if a.ui:
-        from .ui import serve
-        serve(hub, host=a.ui_host, port=a.ui_port)
+        from .ui import TrackerControl, _find_visual_tracker, serve
+        serve(hub, host=a.ui_host, port=a.ui_port,
+              tracker=TrackerControl(a.visual_tracker or _find_visual_tracker(), url=a.tracker_url))
         if a.open:
             open_window(f"http://127.0.0.1:{a.ui_port}")
     print(f"sentinel-c2 up: {len(site.nodes)} nodes, ESP32 {'on ' + a.serial if a.serial else 'off'}, "
@@ -89,6 +90,9 @@ def main(argv=None):
     ap.add_argument("--ui-port", type=int, default=8090)
     ap.add_argument("--ui-host", default="127.0.0.1", help="0.0.0.0 to view the dashboard from other machines")
     ap.add_argument("--open", action="store_true", help="with --ui: open the dashboard in its own window")
+    ap.add_argument("--visual-tracker", help="Visual-Tracker folder, for the Camera tab's Start button "
+                                             "(default: ../Visual-Tracker next to this repo)")
+    ap.add_argument("--tracker-url", default="http://127.0.0.1:8001", help="Visual-Tracker dashboard address")
     ap.add_argument("--map", action="store_true", help="serve silent-sentinel's live map")
     ap.add_argument("--map-port", type=int, default=8080)
     ap.add_argument("--cot", nargs="?", const="udp://239.2.3.1:6969", help="send CoT to TAK")

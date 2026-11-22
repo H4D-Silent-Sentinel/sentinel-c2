@@ -5,12 +5,20 @@
 Standard library only; the page needs no internet (the plan view is drawn from the site file).
 GET /            the dashboard: every sensor and the C2's picture
 GET /radar       the radar scope: what each radar sees, as a classic radar display
-GET /state.json, /radar.json   the data behind each page (also handy for scripts)
+GET /camera      the camera tracker (Visual-Tracker's Live view), with a button to start it
+GET /state.json, /radar.json, /api/tracker   the data behind each page (also handy for scripts)
+POST /api/tracker/start, /api/tracker/link   start Visual-Tracker / switch on its link to the C2
+                 (only accepted from this machine)
 """
 from __future__ import annotations
 
 import json
 import math
+import os
+import subprocess
+import sys
+import urllib.request
+from pathlib import Path
 import threading
 import time
 from collections import deque
@@ -227,9 +235,99 @@ def radar_view(hub, now: float | None = None, window_s: float = 12.0) -> dict:
     return dict(t=now, site=hub.base.site.name, radars=out)
 
 
-def serve(hub, host: str = "127.0.0.1", port: int = 8090, log=print) -> ThreadingHTTPServer:
+class TrackerControl:
+    """Starts the Visual-Tracker (its own launcher, so macOS camera permission works) and, once its
+    dashboard answers, switches on its link to this C2 and picks the model."""
+
+    def __init__(self, path: str | None, url: str = "http://127.0.0.1:8001", model: str = "v4", launcher=None,
+                 log=print):
+        self.path = Path(path).expanduser() if path else None
+        self.url, self.model, self.log = url.rstrip("/"), model, log
+        self.launcher = launcher or self._launch
+        self.state = "idle"  # idle | starting | running | failed
+        self.message = ""
+        self._configured = False
+
+    @property
+    def script(self) -> Path | None:
+        return self.path / "Start Tracker.command" if self.path else None
+
+    def _get(self, path: str, timeout: float = 0.6):
+        with urllib.request.urlopen(self.url + path, timeout=timeout) as r:
+            return json.loads(r.read() or b"null")
+
+    def status(self) -> dict:
+        try:
+            stats = self._get("/live/stats")
+            running = True
+        except Exception:
+            stats, running = None, False
+        if running:
+            self.state = "running"
+            if not self._configured:
+                self.configure()
+        elif self.state == "running":
+            self.state, self._configured = "idle", False
+        link = (stats or {}).get("link") or {}
+        problem = None
+        if not self.path or not self.path.exists():
+            problem = "Visual-Tracker folder not found. Start the C2 with --visual-tracker /path/to/Visual-Tracker."
+        elif not (self.path / ".venv" / "bin" / "python").exists():
+            problem = ("Visual-Tracker isn't set up on this Mac yet. In its folder run: "
+                       "python3 -m venv .venv && .venv/bin/pip install -r requirements.txt")
+        return dict(state=self.state, running=running, url=self.url, message=self.message, problem=problem,
+                    can_start=sys.platform == "darwin" and problem is None,
+                    sending=bool(link.get("enabled")), c2_up=bool((link.get("c2") or {}).get("up")),
+                    src=link.get("src"), cue=link.get("cue"))
+
+    def configure(self) -> bool:
+        try:
+            self._get(f"/live/set?link=1&model={self.model}")
+            self._configured = True
+            self.log(f"camera tracker: link to C2 on, model {self.model}")
+            return True
+        except Exception as e:
+            self.message = f"Couldn't switch on the tracker's link: {e}"
+            return False
+
+    def _launch(self, script: Path):
+        if sys.platform != "darwin":
+            raise RuntimeError("Starting the camera tracker from here only works on a Mac; start it by hand.")
+        subprocess.Popen(["open", str(script)])  # opens in its own Terminal window, logs visible, Ctrl-C there stops it
+
+    def start(self) -> dict:
+        st = self.status()
+        if st["running"]:
+            return st
+        if st["problem"]:
+            self.message = st["problem"]
+            return self.status()
+        try:
+            self.launcher(self.script)
+        except Exception as e:
+            self.state, self.message = "failed", str(e)
+            return self.status()
+        self.state, self._configured = "starting", False
+        self.message = ("Starting. A Terminal window opens for the tracker; the first time, macOS asks for camera "
+                        "access. Allow it. This can take a minute while the model and VLM load.")
+        self.log("camera tracker: starting " + str(self.script))
+        return self.status()
+
+
+def _find_visual_tracker() -> str | None:
+    here = Path(__file__).resolve().parents[2]
+    for p in (here / "Visual-Tracker", here / "vt-repo"):
+        if (p / "base_link.py").exists():
+            return str(p)
+    return None
+
+
+def serve(hub, host: str = "127.0.0.1", port: int = 8090, log=print, tracker: TrackerControl | None = None,
+          ) -> ThreadingHTTPServer:
+    tracker = tracker or TrackerControl(_find_visual_tracker(), log=log)
     pages = {p: files("sentinel_c2").joinpath(f"static/{f}").read_bytes()
-             for p, f in (("/", "ui.html"), ("/index.html", "ui.html"), ("/radar", "radar.html"))}
+             for p, f in (("/", "ui.html"), ("/index.html", "ui.html"), ("/radar", "radar.html"),
+                          ("/camera", "camera.html"))}
     lock = threading.Lock()
 
     class H(BaseHTTPRequestHandler):
@@ -239,6 +337,8 @@ def serve(hub, host: str = "127.0.0.1", port: int = 8090, log=print) -> Threadin
                 with lock:
                     body = json.dumps(summary(hub) if path == "/state.json" else radar_view(hub)).encode()
                 ctype = "application/json"
+            elif path == "/api/tracker":
+                body, ctype = json.dumps(tracker.status()).encode(), "application/json"
             elif path in pages:
                 body, ctype = pages[path], "text/html; charset=utf-8"
             else:
@@ -251,10 +351,31 @@ def serve(hub, host: str = "127.0.0.1", port: int = 8090, log=print) -> Threadin
             self.end_headers()
             self.wfile.write(body)
 
+        def do_POST(self):
+            path = self.path.split("?")[0]
+            if self.client_address[0] not in ("127.0.0.1", "::1"):
+                self.send_error(403, "Only from the C2 machine itself")
+                return
+            if path == "/api/tracker/start":
+                out = tracker.start()
+            elif path == "/api/tracker/link":
+                tracker.configure()
+                out = tracker.status()
+            else:
+                self.send_error(404)
+                return
+            body = json.dumps(out).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
         def log_message(self, *a):
             pass
 
     srv = ThreadingHTTPServer((host, port), H)
+    srv.tracker = tracker  # type: ignore[attr-defined]
     threading.Thread(target=srv.serve_forever, daemon=True, name="ui").start()
     log(f"dashboard: http://{host}:{srv.server_address[1]}")
     return srv

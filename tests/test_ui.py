@@ -72,3 +72,73 @@ def test_pages_and_json_are_served():
     finally:
         srv.shutdown()
         hub.close()
+
+
+def test_camera_tab_starts_tracker_and_turns_on_its_link(tmp_path):
+    """Start button -> launcher runs Start Tracker.command; once the tracker's dashboard answers,
+    the C2 switches on its link to the C2 with model v4."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from urllib.parse import parse_qs, urlparse
+
+    from sentinel_c2.ui import TrackerControl
+
+    vt = tmp_path / "Visual-Tracker"
+    (vt / ".venv" / "bin").mkdir(parents=True)
+    (vt / ".venv" / "bin" / "python").write_text("")
+    (vt / "Start Tracker.command").write_text("")
+    settings = {"link": False, "model": "v3"}
+
+    class FakeVT(BaseHTTPRequestHandler):
+        def do_GET(self):
+            u = urlparse(self.path)
+            if u.path == "/live/set":
+                for k, v in parse_qs(u.query).items():
+                    settings[k] = v[0] in ("1", "true") if k == "link" else v[0]
+                body = b'{"ok": true}'
+            else:
+                body = json.dumps({"link": {"enabled": settings["link"], "src": "post-1",
+                                            "c2": {"up": settings["link"]}}}).encode()
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+
+    fake = {}
+
+    def launcher(script):  # stands in for `open "Start Tracker.command"`
+        assert script.name == "Start Tracker.command"
+        fake["srv"] = srv = ThreadingHTTPServer(("127.0.0.1", 0), FakeVT)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        ctl.url = f"http://127.0.0.1:{srv.server_address[1]}"
+
+    ctl = TrackerControl(str(vt), url="http://127.0.0.1:9", launcher=launcher, log=lambda *_: None)
+    hub = make_hub()
+    srv = serve(hub, port=0, log=lambda *_: None, tracker=ctl)
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
+    try:
+        assert b"Start camera tracker" in urllib.request.urlopen(base + "/camera").read()
+        st = json.loads(urllib.request.urlopen(base + "/api/tracker").read())
+        assert st["running"] is False and st["problem"] is None
+        req = urllib.request.Request(base + "/api/tracker/start", method="POST")
+        st = json.loads(urllib.request.urlopen(req).read())
+        assert st["running"] is True  # fake tracker came up during start
+        st = json.loads(urllib.request.urlopen(base + "/api/tracker").read())
+        assert settings == {"link": True, "model": "v4"}
+        assert st["sending"] is True and st["c2_up"] is True
+    finally:
+        srv.shutdown()
+        if "srv" in fake:
+            fake["srv"].shutdown()
+        hub.close()
+
+
+def test_camera_tab_explains_missing_setup(tmp_path):
+    from sentinel_c2.ui import TrackerControl
+    (tmp_path / "Visual-Tracker").mkdir()
+    st = TrackerControl(str(tmp_path / "Visual-Tracker"), url="http://127.0.0.1:9", log=lambda *_: None).status()
+    assert st["running"] is False and "pip install -r requirements.txt" in st["problem"] and not st["can_start"]
+    st = TrackerControl(None, url="http://127.0.0.1:9", log=lambda *_: None).status()
+    assert "--visual-tracker" in st["problem"]
