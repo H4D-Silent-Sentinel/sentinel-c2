@@ -101,3 +101,42 @@ def test_radar_vouches_for_node_hints():
     fly(site, radar, base, link, 20, 30, each=nodes({2, 3, 4}))
     assert {p.node_id for p in sent} == {1, 5, 6}
     link.close()
+
+
+def _replay(seed):
+    """The demo's sensors (nodes + camera + radar with a shadow) on a virtual clock. Returns the number
+    of seconds the dashboard would have shown more than one live drone (there is only one)."""
+    import json
+    from cuas.sim.scenario import NetworkSim
+    from sentinel_c2.tracker_link import TrackerLink
+    site, base, link, radar = rig(shadows=[Shadow(270, 340, 120)], seed=seed)
+    cams = TrackerLink(base, 0, 0, broadcast=None, **QUIET)
+    lat, lon = site.frame.to_ll(0, -120)
+    T0, next_scan, next_step, multi = 1e6, 0.0, 1.0, 0
+    for t, kind, payload, _ in NetworkSim(site, [DroneSim(DEFAULT_PATH)], seed=seed).events(0.1):
+        while next_scan <= t:
+            plots, _ = radar.scan(next_scan, 0.5)
+            link.on_datagram(make_radar("radar-1", T0 + next_scan, {"lat": lat, "lon": lon, "alt_m": 10}, plots),
+                             "x", now=T0 + next_scan)
+            next_scan += 0.5
+        if kind == "lora":
+            base.on_packet(payload, T0 + t)
+        else:
+            m = json.loads(payload)
+            m["t"] = T0 + t
+            cams.on_datagram(json.dumps(m).encode(), "x", now=T0 + t)
+        if t >= next_step:
+            next_step += 1
+            snap = base.step(T0 + t)
+            live = [x for x in snap if x["confirmed"]
+                    and any(T0 + t - ts <= 5 for ts in base.tracker.tracks[x["id"]].sources.values())]
+            multi += len(live) > 1
+    link.close()
+    cams.close()
+    return multi
+
+
+def test_clutter_does_not_keep_a_ghost_track_alive():
+    """Regression: one-off radar plots used to feed a coasting track (wide gate), so one drone showed as two."""
+    for seed in (0, 2, 5):  # the seeds that produced a ghost before the fix
+        assert _replay(seed) == 0, seed

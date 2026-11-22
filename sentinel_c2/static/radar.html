@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Silent Sentinel · Radar scope</title>
+<style>
+  :root { --bg:#0d1216; --panel:#141b21; --panel2:#19222a; --fg:#e4eaee; --muted:#8d9ba6; --line:#25313a;
+          --scope:#061a10; --grid:#1d4a32; --sweep:#3fe08a; --plot:#7dffb0; --weak:#5b8f72; --track:#ff9f1c; --down:#e5484d; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: baseline; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+  header h1 { margin: 0; font-size: 16px; letter-spacing: .04em; }
+  header .site { color: var(--muted); }
+  nav { margin-left: auto; display: flex; gap: 4px; }
+  nav a { color: var(--muted); text-decoration: none; padding: 3px 10px; border-radius: 6px; border: 1px solid transparent; }
+  nav a:hover { color: var(--fg); border-color: var(--line); }
+  nav a[aria-current] { color: var(--fg); background: var(--panel2); border-color: var(--line); }
+  .clock { margin-left: 12px; font-family: ui-monospace, Menlo, monospace; color: var(--muted); }
+  main { display: grid; grid-template-columns: 1fr 320px; gap: 14px; padding: 14px 20px 20px; height: calc(100% - 50px); }
+  .scopebox { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; min-height: 0; }
+  canvas { width: 100%; height: 100%; display: block; }
+  aside { display: grid; gap: 14px; align-content: start; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+  .big { font-size: 22px; font-weight: 700; }
+  .muted { color: var(--muted); }
+  .bad { color: var(--down); }
+  select { background: var(--panel2); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font: inherit; width: 100%; }
+  .key { display: grid; grid-template-columns: 22px 1fr; gap: 6px 8px; align-items: center; font-size: 13px; color: var(--muted); }
+  .key i { display: block; justify-self: center; }
+  .row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .row:last-child { border-bottom: 0; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; height: auto; } .scopebox { height: 70vh; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>SILENT SENTINEL · RADAR</h1>
+  <span class="site" id="site">connecting…</span>
+  <nav><a href="/">All sensors</a><a href="/radar" aria-current="page">Radar scope</a></nav>
+  <span class="clock" id="clock"></span>
+</header>
+<main>
+  <div class="scopebox"><canvas id="scope" aria-label="Radar scope: radar at the centre, north up"></canvas></div>
+  <aside>
+    <section>
+      <h2>Radar</h2>
+      <select id="pick" aria-label="Which radar"></select>
+      <div style="margin-top:10px" class="big" id="state">—</div>
+      <div class="muted" id="stateText"></div>
+    </section>
+    <section>
+      <h2>Right now</h2>
+      <div id="now"></div>
+    </section>
+    <section>
+      <h2>How to read this</h2>
+      <div class="key">
+        <i style="width:9px;height:9px;border-radius:50%;background:var(--plot)"></i><span>Strong contact (likely real). Fades over 12 s.</span>
+        <i style="width:7px;height:7px;border-radius:50%;background:var(--weak)"></i><span>Weak contact (often birds or clutter).</span>
+        <i style="width:12px;height:12px;transform:rotate(45deg);border:2px solid var(--track)"></i><span>Drone the C2 is tracking (all sensors combined).</span>
+        <i style="width:16px;height:10px;background:repeating-linear-gradient(45deg,#3a2a2a 0 3px,transparent 3px 6px)"></i><span>Blocked by buildings: the radar can't see there.</span>
+      </div>
+      <div class="note">Radar at the centre, north up. Rings show distance. Simulated radar: nothing is transmitted.</div>
+    </section>
+  </aside>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const cv = $('scope'), ctx = cv.getContext('2d');
+let data = null, pick = null, lastOk = 0, t0 = performance.now();
+
+function niceRange(r) { return [100, 200, 300, 500, 750, 1000, 1500, 2000, 3000, 5000].find(x => x >= r) || r; }
+
+function draw() {
+  const dpr = devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  if (cv.width !== W * dpr || cv.height !== H * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  const R = Math.min(W, H) / 2 - 34, cx = W / 2, cy = H / 2;
+  const rad = data && data.radars.find(r => r.src === pick);
+  // scope disc
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--scope');
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, 2 * Math.PI); ctx.fill();
+  if (!rad) {
+    ctx.fillStyle = '#8d9ba6'; ctx.font = '14px system-ui'; ctx.textAlign = 'center';
+    ctx.fillText(data ? 'No radar connected to the C2' : 'Connecting to the C2…', cx, cy);
+    return requestAnimationFrame(draw);
+  }
+  // range: fit what is shown, capped by the radar's max range
+  let far = 150;
+  for (const p of rad.plots) far = Math.max(far, p.gr);
+  for (const t of rad.tracks) far = Math.max(far, t.gr);
+  for (const s of rad.shadows) far = Math.max(far, s[2] * 1.6);
+  const maxR = niceRange(Math.min(far * 1.15, rad.max_range_m || far * 1.15));
+  const k = R / maxR;
+  const pos = (az, gr) => [cx + Math.sin(az * Math.PI / 180) * gr * k, cy - Math.cos(az * Math.PI / 180) * gr * k];
+  ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, R, 0, 2 * Math.PI); ctx.clip();
+  // shadows (hatched)
+  for (const [a0, a1, beyond] of rad.shadows) {
+    const s0 = (a0 - 90) * Math.PI / 180, s1 = ((a1 < a0 ? a1 + 360 : a1) - 90) * Math.PI / 180;
+    ctx.beginPath(); ctx.arc(cx, cy, R, s0, s1); ctx.arc(cx, cy, Math.min(beyond * k, R), s1, s0, true); ctx.closePath();
+    ctx.fillStyle = 'rgba(120,50,50,.28)'; ctx.fill();
+    ctx.save(); ctx.clip(); ctx.strokeStyle = 'rgba(229,72,77,.25)'; ctx.lineWidth = 1;
+    for (let x = -R; x < R * 3; x += 8) { ctx.beginPath(); ctx.moveTo(cx - R + x, cy - R); ctx.lineTo(cx - R + x - 2 * R, cy + R); ctx.stroke(); }
+    ctx.restore();
+  }
+  // rings and spokes
+  ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--grid'); ctx.lineWidth = 1;
+  ctx.fillStyle = '#4f9a72'; ctx.font = '11px ui-monospace, Menlo, monospace'; ctx.textAlign = 'left';
+  for (let i = 1; i <= 4; i++) {
+    const r = R * i / 4; ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI); ctx.stroke();
+    ctx.fillText(`${Math.round(maxR * i / 4)} m`, cx + 4, cy - r + 13);
+  }
+  for (let a = 0; a < 360; a += 30) { const [x, y] = pos(a, maxR); ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(x, y); ctx.stroke(); }
+  // sweep (cosmetic: one turn per scan period, min 2 s so it is readable)
+  const period = Math.max(2, rad.scan_s || 1) * 1000, ang = ((performance.now() - t0) % period) / period * 2 * Math.PI;
+  const grad = ctx.createConicGradient ? ctx.createConicGradient(ang - Math.PI / 2 - 0.6, cx, cy) : null;
+  if (grad && rad.up) {
+    grad.addColorStop(0, 'rgba(63,224,138,0)'); grad.addColorStop(0.095, 'rgba(63,224,138,.22)'); grad.addColorStop(0.1, 'rgba(63,224,138,0)');
+    ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 2 * Math.PI); ctx.fill();
+  }
+  // plots (fade with age)
+  for (const p of rad.plots) {
+    const a = Math.max(0, 1 - p.age / 12), strong = p.conf >= 0.6, [x, y] = pos(p.az, p.gr);
+    ctx.globalAlpha = a;
+    ctx.fillStyle = strong ? getComputedStyle(document.documentElement).getPropertyValue('--plot') : getComputedStyle(document.documentElement).getPropertyValue('--weak');
+    ctx.beginPath(); ctx.arc(x, y, strong ? 4.5 : 3, 0, 2 * Math.PI); ctx.fill();
+    if (strong && p.age < 1.2 && p.id != null && p.id < 10000) { ctx.fillText(`R${p.id}`, x + 7, y - 6); }
+  }
+  ctx.globalAlpha = 1;
+  // C2 tracks
+  for (const t of rad.tracks) {
+    const [x, y] = pos(t.az, t.gr), c = t.confirmed ? '#ff9f1c' : '#c9a465';
+    ctx.strokeStyle = c; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x, y - 9); ctx.lineTo(x + 9, y); ctx.lineTo(x, y + 9); ctx.lineTo(x - 9, y); ctx.closePath(); ctx.stroke();
+    ctx.fillStyle = c; ctx.font = 'bold 12px system-ui'; ctx.fillText(`Drone ${t.id}`, x + 12, y + 4);
+  }
+  ctx.restore();
+  // rim, north, radar
+  ctx.strokeStyle = '#2b6b48'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 2 * Math.PI); ctx.stroke();
+  ctx.fillStyle = '#8d9ba6'; ctx.font = 'bold 12px system-ui'; ctx.textAlign = 'center';
+  for (const [l, a] of [['N', 0], ['E', 90], ['S', 180], ['W', 270]]) { const [x, y] = pos(a, maxR + 16 / k); ctx.fillText(l, x, y + 4); }
+  ctx.fillStyle = rad.up ? '#3fe08a' : '#e5484d'; ctx.beginPath(); ctx.arc(cx, cy, 4, 0, 2 * Math.PI); ctx.fill();
+  requestAnimationFrame(draw);
+}
+
+function side() {
+  const rad = data && data.radars.find(r => r.src === pick);
+  if (!rad) { $('state').textContent = data ? 'No radar' : '—';
+    $('stateText').textContent = data ? 'Start one: python -m sentinel_c2.fake_radar --site <site>.json' : ''; $('now').innerHTML = ''; return; }
+  $('state').textContent = rad.up ? 'Connected' : 'NOT REPORTING';
+  $('state').className = 'big' + (rad.up ? '' : ' bad');
+  $('stateText').textContent = rad.up ? `Last report ${rad.last_heard_s < 2 ? 'just now' : rad.last_heard_s.toFixed(0) + ' s ago'}.`
+    : `Silent for ${rad.last_heard_s.toFixed(0)} s. Check the radar and its network link.`;
+  const recent = rad.plots.filter(p => p.age < 2);
+  const strong = recent.filter(p => p.conf >= 0.6).length;
+  const conf = rad.tracks.filter(t => t.confirmed);
+  const rows = [['Contacts in the last 2 s', recent.length], ['  of which strong', strong],
+                ['Drones tracked by the C2', conf.length], ['Blocked sectors', rad.shadows.length || 'none'],
+                ['Max range', rad.max_range_m ? rad.max_range_m + ' m' : 'not reported']];
+  $('now').innerHTML = rows.map(([k, v]) => `<div class="row"><span>${k}</span><b>${v}</b></div>`).join('') +
+    conf.map(t => `<div class="note">Drone ${t.id}: ${Math.round(t.gr)} m at ${Math.round(t.az)}°, ±${Math.round(t.sigma_m)} m · ${t.by.join(' + ')}</div>`).join('');
+}
+
+async function tick() {
+  try {
+    data = await (await fetch('radar.json', {cache: 'no-store'})).json();
+    lastOk = Date.now();
+    $('site').textContent = data.site || '';
+    const srcs = data.radars.map(r => r.src);
+    if (!srcs.includes(pick)) pick = srcs[0] || null;
+    const sel = $('pick');
+    if (sel.options.length !== srcs.length || [...sel.options].some((o, i) => o.value !== srcs[i]))
+      sel.innerHTML = srcs.length ? srcs.map(s => `<option>${s}</option>`).join('') : '<option>none connected</option>';
+    sel.value = pick || '';
+    side();
+  } catch (e) {
+    if (Date.now() - lastOk > 3000) { $('state').textContent = 'NO CONNECTION TO C2'; $('state').className = 'big bad'; }
+  }
+  $('clock').textContent = new Date().toLocaleTimeString();
+}
+$('pick').onchange = e => { pick = e.target.value; side(); };
+tick(); setInterval(tick, 500); requestAnimationFrame(draw);
+</script>
+</body>
+</html>

@@ -8,9 +8,13 @@
                "snr_db": 17.5, "conf": 0.8, "range_sigma_m": 3.0, "az_sigma_deg": 1.0}]}
 
 range_m is slant range; az true north clockwise; el up +; vr_mps radial velocity (- = closing).
-An empty `tracks` list is the radar's heartbeat. A plot may start a C2 track only once the radar
-has held that track `id` for INIT_SCANS reports in a row with conf >= 0.6; anything else can only
-update an existing track. Birds and clutter rarely persist like that, so they don't start tracks.
+Optional sensor fields for the radar scope: "max_range_m", "scan_s", and "shadows":
+[[az_from, az_to, beyond_m], ...] (sectors where line of sight is blocked past a range).
+An empty `tracks` list is the radar's heartbeat. A plot reaches the C2 tracker only once the radar
+has reported the same track `id` UPDATE_SCANS times in a row, and may start a new C2 track only after
+INIT_SCANS in a row with conf >= 0.6. One-off plots (birds, clutter) never reach the tracker: a
+coasting track has a wide gate and would otherwise be kept alive by them. Every plot still shows
+on the radar scope.
 """
 from __future__ import annotations
 
@@ -19,6 +23,7 @@ import math
 import socket
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 
 import numpy as np
@@ -27,6 +32,7 @@ SCHEMA_VERSION = 1
 RADAR_PORT = 47012
 INIT_CONF = 0.6
 INIT_SCANS = 3  # consecutive reports of the same radar track id before it may start a C2 track
+UPDATE_SCANS = 2  # ... before it may update one
 
 
 @dataclass
@@ -91,6 +97,8 @@ class RadarLink:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._streak: dict[str, dict] = {}  # src -> {radar track id: consecutive reports}
+        self.plots: dict[str, deque] = {}  # src -> recent plots, for the radar scope
+        self.coverage: dict[str, dict] = {}  # src -> max_range_m / scan_s / shadows, if the radar sends them
         self.rx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.rx.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.rx.bind(("0.0.0.0", port))
@@ -121,20 +129,32 @@ class RadarLink:
         now = time.time() if now is None else now
         try:
             obs = parse_radar(data, self.base.site.frame)
-            src = json.loads(data).get("src", "radar")
+            m = json.loads(data)
+            src = m.get("src", "radar")
+            e, n = self.base.site.frame.to_en(float(m["sensor"]["lat"]), float(m["sensor"]["lon"]))
         except (ValueError, KeyError, TypeError) as e:
             self.log(f"radar: bad message from {ip}: {e}")
             return 0
         with self._lock:
             r = self.radars.setdefault(src, {"ip": ip, "last_heard": 0.0, "msgs": 0, "plots": 0, "up": False})
-            r.update(ip=ip, last_heard=now, msgs=r["msgs"] + 1, plots=len(obs))
+            r.update(ip=ip, last_heard=now, msgs=r["msgs"] + 1, plots=len(obs), e=e, n=n,
+                     alt=float(m["sensor"].get("alt_m", 0.0)))
+            sen = m["sensor"]
+            self.coverage[src] = {k: sen[k] for k in ("max_range_m", "scan_s", "shadows") if k in sen}
+            q = self.plots.setdefault(src, deque(maxlen=400))
+            for o in obs:
+                q.append(dict(t=now, id=o.track_id, az=o.az_deg, range_m=o.range_m, el=o.el_deg,
+                              gr=o.range_m * math.cos(math.radians(o.el_deg)), conf=o.conf, vr=o.vr_mps))
         prev = self._streak.get(src, {})
         streak = {o.track_id: prev.get(o.track_id, 0) + 1 for o in obs if o.track_id is not None}
         self._streak[src] = streak  # ids missing from this report start over
         with self.base.lock:
             for o in obs:
+                n_seen = streak.get(o.track_id, 0)
+                if n_seen < UPDATE_SCANS:
+                    continue
                 z, R, alt = o.fix()
-                firm = o.conf >= INIT_CONF and streak.get(o.track_id, 0) >= INIT_SCANS
+                firm = o.conf >= INIT_CONF and n_seen >= INIT_SCANS
                 self.base.tracker.update_position(z, R, o.t, source=f"radar:{o.src}", alt_m=alt, can_init=firm)
         return len(obs)
 

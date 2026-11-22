@@ -19,6 +19,25 @@ The fusion itself (packet ingest, loudness localization, Kalman tracker, map, TA
 | UDP 47011 | C2 → tracker | `status` heartbeat with link and node health | 1 Hz, always |
 | UDP 47012 | radar → C2 | `radar` plots: range, azimuth, elevation, radial velocity (an empty list is its heartbeat) | each scan |
 
+## Operator app (no hardware needed to try it)
+
+```sh
+python -m sentinel_c2.demo          # whole system simulated; opens the app window
+```
+
+A real run with the dashboard: add `--ui --open` to the normal command. It opens in its own window (Chrome/Edge app mode); otherwise go to http://127.0.0.1:8090. Use `--ui-host 0.0.0.0` to view it from other machines on the network.
+
+- **All sensors** (`/`): a banner (ALL CLEAR / POSSIBLE DRONE / DRONE TRACKED / DRONE LOST), every sensor's link to the C2 in plain words (green connected, orange detecting, red not reporting, grey not in use), an offline site plan, the drones, and a plain-English event log.
+- **Radar scope** (`/radar`): a classic radar display with the sweep, range rings, contacts fading over 12 s, building shadows hatched, and the C2's fused drones on top.
+- `/state.json` and `/radar.json` return the same data for scripts or other systems.
+
+The demo feeds the real C2 from simulated sensors that all watch one simulated drone:
+- a fake ESP32 receiver on a virtual serial port (real packets, answers hints)
+- camera post-1
+- the fake radar
+
+Nothing is transmitted.
+
 ## Run
 
 ```sh
@@ -56,6 +75,8 @@ It runs in real time on purpose: reports carry the wall clock, so the C2's track
 Message format and C2 ingest are in `sentinel_c2/radar.py`. A real radar plugs in by sending the same `radar` message to udp/47012, or through a small adapter from its vendor's output. The C2 only starts a track from a radar plot after the radar has held that track ID for 3 reports in a row. Across 20 random runs, heavy clutter (3 false plots per scan) never produced a confirmed track, and the drone was tracked ≥ 97% of the time with ~2–3 m median error.
 
 Radar counts like a camera for node hints: if the radar still has a drone the nodes lost, they get re-cued.
+
+A radar plot only reaches the tracker once the radar has reported the same track ID twice in a row. One-off plots (birds, clutter) are shown on the scope but never fused. A coasting track has a wide gate, and one-off plots used to keep a stale track alive, so one drone showed as two. Across replayed demo flights, that went from 20–34 s of a phantom second drone in half the runs to none (`tests/test_radar.py`).
 
 ## Keeping the nodes on target (HINT downlink)
 

@@ -160,7 +160,8 @@ def main(argv=None):
                        false_alarms_per_scan=a.false_alarms)
     radar = FakeRadar(model, [drone], np.random.default_rng(a.seed))
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sensor = {"lat": round(lat, 7), "lon": round(lon, 7), "alt_m": a.alt}
+    sensor = {"lat": round(lat, 7), "lon": round(lon, 7), "alt_m": a.alt, "max_range_m": model.max_range_m,
+              "scan_s": a.scan, "shadows": [[x.az_from, x.az_to, x.beyond_m] for x in model.shadows]}
     print(f"fake radar {a.src} at ({e:.0f}, {n:.0f}) m -> {a.c2}:{a.port}; drone path {drone.duration:.0f} s. "
           "Simulation only, nothing is transmitted over the air. Ctrl-C to stop.", flush=True)
     t_sim, t0 = 0.0, time.time()

@@ -15,6 +15,7 @@ from cuas.config import Site
 from .esp32 import Esp32Link
 from .hints import HintConfig, HintPolicy
 from .radar import RADAR_PORT, RadarLink
+from .ui import EventLog, summary
 from .tracker_link import TrackerLink
 
 
@@ -31,6 +32,7 @@ class Hub:
         self.radar = RadarLink(self.base, radar_port, log=log) if radar_port is not None else None
         self.hints = HintPolicy(self.base, self._send_hint, hint_cfg, log=log)
         self.hints_enabled = hints_enabled
+        self.events = EventLog()
         self.seq = 0
 
     def _send_hint(self, pkt) -> bool:
@@ -72,6 +74,7 @@ class Hub:
             self.hints.step(snap, now)
         st = self.status(snap, now)
         self.trackers.push_status(st)
+        self.events.observe(summary(self, now), self.hints.sent)
         self.seq += 1
         return {"snap": snap, "status": st}
 

@@ -24,6 +24,11 @@ def cmd_run(a):
         from cuas.__main__ import _outputs
         _outputs(SimpleNamespace(map=a.map, map_port=a.map_port, cot=a.cot), hub.base)
     hub.start()
+    if a.ui:
+        from .ui import serve
+        serve(hub, host=a.ui_host, port=a.ui_port)
+        if a.open:
+            open_window(f"http://127.0.0.1:{a.ui_port}")
     print(f"sentinel-c2 up: {len(site.nodes)} nodes, ESP32 {'on ' + a.serial if a.serial else 'off'}, "
           f"trackers {a.tracker or 'auto'}. Ctrl-C to stop.", flush=True)
 
@@ -41,6 +46,21 @@ def cmd_run(a):
         hub.run_forever(1.0, show)
     except KeyboardInterrupt:
         hub.close()
+
+
+def open_window(url: str):
+    """Open the dashboard in its own app-style window (Chrome/Edge --app), else the default browser."""
+    import shutil
+    import subprocess
+    import webbrowser
+    mac = ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+           "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
+    for exe in mac + [shutil.which(n) for n in ("google-chrome", "chromium", "chromium-browser", "msedge")]:
+        if exe and shutil.os.path.exists(exe):
+            subprocess.Popen([exe, f"--app={url}", "--window-size=1440,900"],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return
+    webbrowser.open(url)
 
 
 def cmd_ports(_):
@@ -65,6 +85,10 @@ def main(argv=None):
     ap.add_argument("--no-hints", action="store_true", help="don't send re-acquire hints to the nodes")
     ap.add_argument("--radar-port", type=int, default=47012, help="where radar reports arrive")
     ap.add_argument("--no-radar", action="store_true")
+    ap.add_argument("--ui", action="store_true", help="serve the operator dashboard")
+    ap.add_argument("--ui-port", type=int, default=8090)
+    ap.add_argument("--ui-host", default="127.0.0.1", help="0.0.0.0 to view the dashboard from other machines")
+    ap.add_argument("--open", action="store_true", help="with --ui: open the dashboard in its own window")
     ap.add_argument("--map", action="store_true", help="serve silent-sentinel's live map")
     ap.add_argument("--map-port", type=int, default=8080)
     ap.add_argument("--cot", nargs="?", const="udp://239.2.3.1:6969", help="send CoT to TAK")
