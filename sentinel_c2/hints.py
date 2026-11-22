@@ -1,6 +1,6 @@
 """Re-acquire hints: keep the ESP32 nodes on a drone the camera still has.
 
-When a confirmed track is still being updated by a Visual-Tracker, and a node that
+When a confirmed track is still being updated by a Visual-Tracker or a radar, and a node that
 heard that drone (or sits close to where it is now) has dropped it, the C2 sends that
 node a HINT over LoRa: "look for a rotor comb at f0 for the next hold_s seconds".
 The node's detector then re-confirms on fewer hits near that f0 (see silent-sentinel
@@ -19,7 +19,8 @@ from cuas.packet import make_hint
 
 @dataclass
 class HintConfig:
-    visual_fresh_s: float = 3.0  # tracker must have updated the track this recently
+    visual_fresh_s: float = 3.0  # a camera/radar must have updated the track this recently
+    vouch_sources: tuple = ("visual:", "radar:")  # sensors that count as "still has it"
     hold_s: float = 10.0  # how long each hint stays active on the node
     resend_s: float = 4.0  # per-node repeat interval while the node stays lost
     memory_s: float = 120.0  # a node "heard this drone" if it reported this f0 within this window
@@ -53,9 +54,9 @@ class HintPolicy:
                 live = base.tracker.tracks.get(tr["id"])
                 if not tr["confirmed"] or not tr["f0"] or live is None:
                     continue
-                vis_t = max((t for s, t in live.sources.items() if s.startswith("visual:")), default=None)
+                vis_t = max((t for s, t in live.sources.items() if s.startswith(c.vouch_sources)), default=None)
                 if vis_t is None or now - vis_t > c.visual_fresh_s:
-                    continue  # the tracker isn't (or is no longer) seeing it: nothing to vouch for
+                    continue  # no camera/radar is (still) seeing it: nothing to vouch for
                 f0 = tr["f0"]
                 for nid, node in base.site.nodes.items():
                     ns = base.nodes.get(nid)

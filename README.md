@@ -5,7 +5,7 @@ The collection point for Silent Sentinel. It reads the ESP32 acoustic node netwo
 ```
  ESP32 listening nodes ──LoRa──▶ base_rx ESP32 ──USB serial──▶ ┌─────────────┐ ──cue + status──▶ Visual-Tracker(s)
                        ◀─LoRa── (HINT downlink)  ◀─USB serial── │ sentinel-c2 │ ◀────visual──────  (Mac / Jetson)
-                                                                └─────────────┘ ──▶ live map, TAK
+ radar (simulated for now) ───────────udp/47012───────────────▶ └─────────────┘ ──▶ live map, TAK
 ```
 
 The fusion itself (packet ingest, loudness localization, Kalman tracker, map, TAK) is [silent-sentinel](https://github.com/H4D-Silent-Sentinel/silent-sentinel)'s `cuas` package, used as a library. This repo adds the links and the two-way traffic:
@@ -17,6 +17,7 @@ The fusion itself (packet ingest, loudness localization, Kalman tracker, map, TA
 | UDP 47010 | tracker → C2 | `visual` (an empty `tracks` list is the tracker's heartbeat) | 5 Hz with tracks, 1 Hz idle |
 | UDP 47011 | C2 → tracker | `cue` for each confirmed track | ≤ 1 Hz per track |
 | UDP 47011 | C2 → tracker | `status` heartbeat with link and node health | 1 Hz, always |
+| UDP 47012 | radar → C2 | `radar` plots: range, azimuth, elevation, radial velocity (an empty list is its heartbeat) | each scan |
 
 ## Run
 
@@ -34,9 +35,31 @@ The site file is silent-sentinel's (`sites/*.json`): node positions, plus any fi
 
 Each second the console prints the ESP32 link state, nodes online, each tracker (up or DOWN), and confirmed tracks.
 
+## Radar (simulated)
+
+There is no real radar yet. A real one transmits RF and needs spectrum authorization, so the C2 is tested against a software stand-in that only sends UDP packets:
+
+```sh
+python -m sentinel_c2 --site path/to/site.json                    # terminal 1
+python -m sentinel_c2.fake_radar --site path/to/site.json \
+    --at 0,-120 --shadow 270:340:120 --loop                         # terminal 2
+```
+
+The fake radar flies silent-sentinel's simulated drone path and models:
+- detection that falls off with range (radar equation, small-drone RCS)
+- measurement noise and Doppler
+- false plots from birds and clutter
+- building shadows: `--shadow AZ_FROM:AZ_TO:BEYOND_M` hides the drone in that sector past that range
+
+It runs in real time on purpose: reports carry the wall clock, so the C2's tracker sees true drone speeds.
+
+Message format and C2 ingest are in `sentinel_c2/radar.py`. A real radar plugs in by sending the same `radar` message to udp/47012, or through a small adapter from its vendor's output. The C2 only starts a track from a radar plot after the radar has held that track ID for 3 reports in a row. Across 20 random runs, heavy clutter (3 false plots per scan) never produced a confirmed track, and the drone was tracked ≥ 97% of the time with ~2–3 m median error.
+
+Radar counts like a camera for node hints: if the radar still has a drone the nodes lost, they get re-cued.
+
 ## Keeping the nodes on target (HINT downlink)
 
-The nodes lose a drone when it goes quiet or behind a building. If a Visual-Tracker is still updating that track (within the last 3 s), the C2 sends a HINT over LoRa to each node that (a) reported that drone's rotor frequency in the last 2 min, or (b) is within 300 m of where the track is now, and isn't hearing it.
+The nodes lose a drone when it goes quiet or behind a building. If a Visual-Tracker or radar is still updating that track (within the last 3 s), the C2 sends a HINT over LoRa to each node that (a) reported that drone's rotor frequency in the last 2 min, or (b) is within 300 m of where the track is now, and isn't hearing it.
 
 The hint says "look for a rotor comb at f0 for the next 10 s". The node's detector then re-confirms on 3 hits near that f0 instead of 6 of 8. Hints repeat every 4 s while the node stays lost, and they expire on the node by themselves, so a dropped radio packet costs nothing. A hint at the wrong frequency changes nothing, and noise or wind with a hint active still raises no alarm (tests in silent-sentinel `tests/test_detector.py`).
 

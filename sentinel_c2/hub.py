@@ -3,7 +3,7 @@
 
   ESP32 nodes ──LoRa──▶ base_rx ESP32 ──USB──▶ ┌──────────────┐ ──cue/status──▶ Visual-Tracker(s)
               ◀──LoRa── (HINT downlink) ◀──USB─ │  sentinel-c2 │ ◀──visual──────
-                                                └──────────────┘ ──▶ map / TAK
+  radar (real or fake_radar) ──udp/47012──────▶ └──────────────┘ ──▶ map / TAK
 """
 from __future__ import annotations
 
@@ -14,18 +14,21 @@ from cuas.config import Site
 
 from .esp32 import Esp32Link
 from .hints import HintConfig, HintPolicy
+from .radar import RADAR_PORT, RadarLink
 from .tracker_link import TrackerLink
 
 
 class Hub:
     def __init__(self, site: Site, serial_port: str | None = None, trackers: list[str] | None = None,
                  visual_port: int = 47010, cue_port: int = 47011, broadcast: str | None = "255.255.255.255",
-                 hint_cfg: HintConfig | None = None, hints_enabled: bool = True, log=print):
+                 hint_cfg: HintConfig | None = None, hints_enabled: bool = True,
+                 radar_port: int | None = RADAR_PORT, log=print):
         self.log = log
         self.base = Base(site)
         self.esp = Esp32Link(serial_port, self.base, log=log) if serial_port else None
         self.trackers = TrackerLink(self.base, visual_port, cue_port, static=trackers,
                                     broadcast=broadcast, log=log)
+        self.radar = RadarLink(self.base, radar_port, log=log) if radar_port is not None else None
         self.hints = HintPolicy(self.base, self._send_hint, hint_cfg, log=log)
         self.hints_enabled = hints_enabled
         self.seq = 0
@@ -37,12 +40,16 @@ class Hub:
         if self.esp:
             self.esp.start()
         self.trackers.start()
+        if self.radar:
+            self.radar.start()
         return self
 
     def close(self):
         if self.esp:
             self.esp.close()
         self.trackers.close()
+        if self.radar:
+            self.radar.close()
 
     def status(self, snap: list[dict], now: float) -> dict:
         with self.base.lock:
@@ -52,7 +59,8 @@ class Hub:
                 "esp32": self.esp.state if self.esp else "off",
                 "nodes_online": online, "nodes_total": len(self.base.site.nodes), "nodes_detecting": detecting,
                 "tracks": len(snap), "confirmed": sum(1 for t in snap if t["confirmed"]),
-                "hints_sent": len(self.hints.sent)}
+                "hints_sent": len(self.hints.sent),
+                "radars": {k: v["up"] for k, v in (self.radar.check_health(now) if self.radar else {}).items()}}
 
     def step(self, now: float | None = None) -> dict:
         """One cycle: fuse, push cues, hint nodes, heartbeat everyone. Call ~1 Hz."""

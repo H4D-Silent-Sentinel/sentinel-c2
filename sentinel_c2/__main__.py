@@ -18,7 +18,8 @@ def cmd_run(a):
 
     site = Site.load(a.site)
     hub = Hub(site, a.serial, a.tracker, a.visual_port, a.cue_port,
-              broadcast=None if a.no_broadcast else a.broadcast, hints_enabled=not a.no_hints)
+              broadcast=None if a.no_broadcast else a.broadcast, hints_enabled=not a.no_hints,
+              radar_port=None if a.no_radar else a.radar_port)
     if a.map or a.cot:
         from cuas.__main__ import _outputs
         _outputs(SimpleNamespace(map=a.map, map_port=a.map_port, cot=a.cot), hub.base)
@@ -32,8 +33,9 @@ def cmd_run(a):
         trk = ", ".join(f"{p.src}{'' if p.up else '(DOWN)'}" for p in peers) or "none yet"
         tracks = " | ".join(f"T{t['id']} ±{t['sigma_m']:.0f}m {'/'.join(t['sources'])}"
                             for t in snap if t["confirmed"]) or "no tracks"
+        rad = ", ".join(f"{k}{'' if up else '(DOWN)'}" for k, up in st["radars"].items()) or "none"
         print(f"{time.strftime('%H:%M:%S')} esp32 {st['esp32']} nodes {st['nodes_online']}/{st['nodes_total']} "
-              f"trackers [{trk}]  {tracks}", flush=True)
+              f"trackers [{trk}] radars [{rad}]  {tracks}", flush=True)
 
     try:
         hub.run_forever(1.0, show)
@@ -61,6 +63,8 @@ def main(argv=None):
     ap.add_argument("--broadcast", default="255.255.255.255", help="where to announce before any tracker is heard")
     ap.add_argument("--no-broadcast", action="store_true")
     ap.add_argument("--no-hints", action="store_true", help="don't send re-acquire hints to the nodes")
+    ap.add_argument("--radar-port", type=int, default=47012, help="where radar reports arrive")
+    ap.add_argument("--no-radar", action="store_true")
     ap.add_argument("--map", action="store_true", help="serve silent-sentinel's live map")
     ap.add_argument("--map-port", type=int, default=8080)
     ap.add_argument("--cot", nargs="?", const="udp://239.2.3.1:6969", help="send CoT to TAK")
