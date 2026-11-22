@@ -7,7 +7,9 @@ from pathlib import Path
 from cuas.config import Site
 from cuas.packet import FLAG_CONFIRMED, Packet, PktType
 
-SS = Path(__file__).resolve().parents[2] / "ss"  # silent-sentinel checkout (override with SILENT_SENTINEL)
+_UP = Path(__file__).resolve().parents[2]
+SS = next((p for p in (_UP / "silent-sentinel", _UP / "ss") if p.exists()), _UP / "silent-sentinel")
+# silent-sentinel checkout next to this repo; override with SILENT_SENTINEL
 DRONE_E, DRONE_N, DRONE_ALT, F0 = 60.0, 40.0, 40.0, 200.0
 
 
