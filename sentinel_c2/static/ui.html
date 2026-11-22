@@ -197,6 +197,12 @@ function renderPlan(s) {
   for (const x of s.sensors) {
     if (x.e == null) continue;
     const px = X(x.e), py = Y(x.n), c = col(x.status);
+    if (x.kind === 'camera' && x.yaw != null) {  // field of view: where this camera is looking
+      const half = (x.hfov || 60) / 2, L = Math.max(60, Math.min(W, H) / 5);
+      const pt = a => [px + Math.sin(a * Math.PI / 180) * L, py - Math.cos(a * Math.PI / 180) * L];
+      const [ax, ay] = pt(x.yaw - half), [bx, by] = pt(x.yaw + half);
+      g += `<path d="M${px},${py} L${ax},${ay} A${L},${L} 0 0 1 ${bx},${by} Z" fill="${c}" fill-opacity=".10" stroke="${c}" stroke-opacity=".5"/>`;
+    }
     const shape = x.kind === 'camera' ? `<rect x="${px-7}" y="${py-7}" width="14" height="14" rx="2" fill="${c}"/>`
       : x.kind === 'radar' ? `<path d="M${px},${py-9} L${px+8},${py+6} L${px-8},${py+6} Z" fill="${c}"/>`
       : `<circle cx="${px}" cy="${py}" r="6" fill="${c}"/>` + (x.detecting ? `<circle cx="${px}" cy="${py}" r="12" fill="none" stroke="${c}"/>` : '');

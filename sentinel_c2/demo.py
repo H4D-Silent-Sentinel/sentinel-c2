@@ -7,6 +7,8 @@ simulated sensors that all watch the same simulated drone.
                        answers the C2's TX/HINT lines like the firmware does)
   - camera post-1   -> real v1 `visual` reports over UDP, including heartbeats
   - radar-1         -> the fake radar over UDP (with a building shadow)
+  - chaser-1        -> a moving camera (like the phone in chaser mode): circles the site, reports its
+                       own GPS position and heading every second, and points at the drone
 The node and camera models are silent-sentinel's network simulator (cuas.sim.scenario).
 Everything is software; nothing is transmitted over the air.
 """
@@ -14,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import pty
 import socket
@@ -93,6 +96,22 @@ def run_sensors(site, rx: FakeReceiver, visual_port: int, radar_port: int, shado
                     plots, _ = radar.scan(next_scan, 0.5)
                     sock.sendto(make_radar("radar-1", time.time(), rsensor, plots), ("127.0.0.1", radar_port))
                     next_scan += 0.5
+                if now_sim >= next_cam_hb:  # chaser-1: a moving camera that reports its own pose
+                    ang = now_sim / 40 * 2 * math.pi
+                    ce, cn = 90 * math.cos(ang), 90 * math.sin(ang)
+                    dp = drone.pos(now_sim)
+                    yaw = (math.degrees(math.atan2(dp[0] - ce, dp[1] - cn)) % 360) if dp else math.degrees(ang) % 360
+                    clat, clon = site.frame.to_ll(ce, cn)
+                    tracks = []
+                    if dp and math.hypot(dp[0] - ce, dp[1] - cn) < 150:
+                        rng_h = math.hypot(dp[0] - ce, dp[1] - cn)
+                        tracks.append({"id": 1, "az_deg": round(yaw + float(np.random.normal(0, 1.0)), 2),
+                                       "el_deg": round(math.degrees(math.atan2(drone.alt - 2, rng_h)), 2),
+                                       "az_sigma_deg": 1.0, "conf": 0.7, "class": "drone"})
+                    msg = {"v": 1, "type": "visual", "src": "chaser-1", "t": time.time(),
+                           "sensor": {"lat": clat, "lon": clon, "alt_m": 2.0, "yaw_deg": round(yaw, 1),
+                                      "pitch_deg": 15.0, "hfov_deg": 65.0, "vfov_deg": 50.0}, "tracks": tracks}
+                    sock.sendto(json.dumps(msg).encode(), ("127.0.0.1", visual_port))
                 if now_sim >= next_cam_hb:  # camera heartbeat when it has nothing to report
                     for cid in cams:
                         if time.time() - cam_seen.get(cid, 0) > 0.9:

@@ -27,6 +27,11 @@ class TrackerPeer:
     msgs: int = 0
     tracks_seen: int = 0  # tracks in its latest report
     up: bool = False
+    # where it says it is and points (moving cameras like a chaser report this with every message)
+    e: float | None = None
+    n: float | None = None
+    yaw: float | None = None
+    hfov: float | None = None
 
 
 class TrackerLink:
@@ -36,7 +41,7 @@ class TrackerLink:
         self.base, self.cue_port, self.log = base, cue_port, log
         self.static, self.broadcast, self.timeout_s = list(static or []), broadcast, timeout_s
         self.cue_interval_s = cue_interval_s
-        self.peers: dict[str, TrackerPeer] = {}
+        self.peers: dict[tuple[str, str], TrackerPeer] = {}  # (ip, camera src) -> peer
         self._lock = threading.Lock()
         self._last_cue: dict[int, float] = {}
         self._stop = threading.Event()
@@ -79,12 +84,24 @@ class TrackerLink:
             return
         if not isinstance(m, dict) or m.get("v") != SCHEMA_VERSION or m.get("type") != "visual":
             return
+        src = str(m.get("src", "?"))
         with self._lock:  # any valid visual report counts as a heartbeat, even if we can't use it
-            p = self.peers.get(ip)
+            key = (ip, src)  # one machine can run several cameras (e.g. post-1 and a phone as chaser-1)
+            p = self.peers.get(key)
             if p is None:
-                p = self.peers[ip] = TrackerPeer(ip, first_heard=now)
-            p.src, p.last_heard, p.msgs = str(m.get("src", "?")), now, p.msgs + 1
+                p = self.peers[key] = TrackerPeer(ip, first_heard=now)
+            p.src, p.last_heard, p.msgs = src, now, p.msgs + 1
             p.tracks_seen = len(m.get("tracks") or [])
+            sen = m.get("sensor") or {}
+            try:
+                if sen.get("lat") is not None and sen.get("lon") is not None:
+                    p.e, p.n = self.base.site.frame.to_en(float(sen["lat"]), float(sen["lon"]))
+                else:
+                    p.e = p.n = None
+                p.yaw = None if sen.get("yaw_deg") is None else float(sen["yaw_deg"]) % 360
+                p.hfov = None if sen.get("hfov_deg") is None else float(sen["hfov_deg"])
+            except (TypeError, ValueError):
+                pass
         try:
             obs = parse_visual(data, self.base.site.frame, self.base.site.cameras)
         except (ValueError, KeyError, TypeError) as e:
@@ -107,7 +124,7 @@ class TrackerLink:
     # -- outbound ---------------------------------------------------------------
     def destinations(self) -> set[str]:
         with self._lock:
-            return set(self.static) | set(self.peers)
+            return set(self.static) | {p.ip for p in self.peers.values()}
 
     def _send(self, msg: bytes, ips) -> int:
         n = 0

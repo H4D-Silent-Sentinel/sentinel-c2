@@ -95,18 +95,27 @@ def summary(hub, now: float | None = None) -> dict:
         e = n = None
         if cam and cam.lat is not None:
             e, n = site.frame.to_en(cam.lat, cam.lon)
+        mobile = cam is None or cam.lat is None
+        if p is not None and p.up and p.e is not None and mobile:
+            e, n = p.e, p.n  # a moving camera (chaser) is where it last said it was
         if p is None and cam is not None and cam.lat is None:
             st, text = "off", "Not launched (mobile camera)."
         elif p is None:
             st, text = "down", "Not connected. Start the Visual-Tracker and point it at this C2."
         elif not p.up:
             st, text = "down", f"Connection lost {_ago(now - p.last_heard)}."
+        elif mobile and p.e is None:
+            st, text = "ok", "Connected, waiting for its GPS fix (can't place what it sees yet)."
         elif p.tracks_seen:
             st, text = "alert", f"Sees {p.tracks_seen} drone{'s' if p.tracks_seen > 1 else ''}."
         else:
             st, text = "ok", "Connected, nothing in view."
+        if p is not None and p.up and p.yaw is not None:
+            text += f" Pointing {p.yaw:.0f}°" + (" (moving)." if mobile else ".")
         sensors.append(dict(kind="camera", id=f"cam-{cid}", name=f"Camera {cid}",
-                            label=(cam.label if cam and cam.label else ""), status=st, text=text, e=e, n=n))
+                            label=(cam.label if cam and cam.label else ""), status=st, text=text, e=e, n=n,
+                            yaw=p.yaw if p is not None and p.up else None,
+                            hfov=p.hfov if p is not None and p.up else None))
 
     # -- radars -------------------------------------------------------------------------
     if hub.radar:

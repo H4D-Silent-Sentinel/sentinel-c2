@@ -36,7 +36,7 @@ def test_verdicts_follow_what_the_sensors_see():
     assert s["verdict"]["title"] == "DRONE TRACKED", s["verdict"]
     assert "camera post-1" in s["verdict"]["text"] and "microphones" in s["verdict"]["text"]
     cam = next(x for x in s["sensors"] if x["name"] == "Camera post-1")
-    assert cam["status"] == "alert" and cam["text"] == "Sees 1 drone."
+    assert cam["status"] == "alert" and cam["text"].startswith("Sees 1 drone.")
     s = summary(hub, 1030.0)  # everything went quiet: lost, not "tracked"
     assert s["verdict"]["title"] in ("DRONE LOST", "ALL CLEAR")
     hub.close()
@@ -159,3 +159,38 @@ def test_camera_tab_explains_missing_setup(tmp_path):
     assert st["running"] is False and "pip install -r requirements.txt" in st["problem"] and not st["can_start"]
     st = TrackerControl(None, url="http://127.0.0.1:9", log=lambda *_: None).status()
     assert "--visual-tracker" in st["problem"]
+
+
+def test_moving_camera_shows_where_it_is_and_points():
+    hub = make_hub()
+    site = hub.base.site
+    lat, lon = site.frame.to_ll(30.0, -50.0)
+    msg = {"v": 1, "type": "visual", "src": "chaser-1", "t": 1000.0,
+           "sensor": {"lat": lat, "lon": lon, "alt_m": 3, "yaw_deg": 135.0, "pitch_deg": 10, "hfov_deg": 65, "vfov_deg": 50},
+           "tracks": []}
+    hub.trackers.on_datagram(json.dumps(msg).encode(), "10.0.0.20", now=1000.0)
+    s = summary(hub, 1000.5)
+    ch = next(x for x in s["sensors"] if x["name"] == "Camera chaser-1")
+    assert ch["status"] == "ok" and abs(ch["e"] - 30) < 0.5 and abs(ch["n"] + 50) < 0.5
+    assert ch["yaw"] == 135.0 and ch["hfov"] == 65 and "Pointing 135° (moving)" in ch["text"]
+    no_gps = dict(msg, sensor={"yaw_deg": 135.0, "hfov_deg": 65})
+    hub.trackers.on_datagram(json.dumps(no_gps).encode(), "10.0.0.20", now=1001.0)
+    ch = next(x for x in summary(hub, 1001.5)["sensors"] if x["name"] == "Camera chaser-1")
+    assert "waiting for its GPS fix" in ch["text"] and ch["e"] is None
+    hub.close()
+
+
+def test_two_cameras_on_one_machine_are_two_sensors():
+    hub = make_hub()
+    site = hub.base.site
+    lat, lon = site.frame.to_ll(30.0, -50.0)
+    for t in (1000.0, 1000.5):
+        hub.trackers.on_datagram(json.dumps(visual_msg(t, [])).encode(), "10.0.0.9", now=t)  # post-1
+        hub.trackers.on_datagram(json.dumps({"v": 1, "type": "visual", "src": "chaser-1", "t": t,
+                                             "sensor": {"lat": lat, "lon": lon, "yaw_deg": 90.0}, "tracks": []}).encode(),
+                                 "10.0.0.9", now=t)  # same machine
+    s = summary(hub, 1001.0)
+    cams = {x["name"]: x["status"] for x in s["sensors"] if x["kind"] == "camera"}
+    assert cams == {"Camera post-1": "ok", "Camera chaser-1": "ok"}, cams
+    assert hub.trackers.destinations() == {"10.0.0.9"}  # cues still go to that machine once
+    hub.close()
