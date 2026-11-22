@@ -12,6 +12,7 @@ import os
 import pty
 import socket
 import sys
+import termios
 import tempfile
 import threading
 import time
@@ -26,7 +27,9 @@ from sentinel_c2.hints import HintConfig
 
 from scenario import camera_obs, detection, load_site, rx_line
 
-VT = Path(os.environ.get("VISUAL_TRACKER", Path(__file__).resolve().parents[2] / "vt-repo"))
+_UP = Path(__file__).resolve().parents[2]
+VT = Path(os.environ.get("VISUAL_TRACKER") or next(
+    (p for p in (_UP / "Visual-Tracker", _UP / "vt-repo") if (p / "base_link.py").exists()), _UP / "Visual-Tracker"))
 pytestmark = pytest.mark.skipif(not (VT / "base_link.py").exists(), reason="no Visual-Tracker checkout")
 
 
@@ -67,7 +70,11 @@ class FakeBaseRx:
 
     def unplug(self):
         self.alive = False
-        for fd in (self.master, self._slave):
+        for fd in (self._slave, self.master):
+            try:
+                termios.tcflush(fd, termios.TCIOFLUSH)  # never wait on a drain at close (macOS)
+            except (OSError, termios.error):
+                pass
             try:
                 os.close(fd)
             except OSError:
@@ -92,7 +99,7 @@ def chain():
     port = os.path.join(d, "esp32")
     esp = FakeBaseRx(port)
     logs = []
-    hub = Hub(site, serial_port=port, trackers=["127.0.0.1"], visual_port=0, cue_port=0, broadcast=None,
+    hub = Hub(site, serial_port=port, trackers=["127.0.0.1"], visual_port=0, cue_port=0, broadcast=None, radar_port=0,
               hint_cfg=HintConfig(resend_s=1.0), log=logs.append)
     hub.esp.retry_s = 0.2
     old = os.environ.pop("VT_BASE", None)
@@ -112,7 +119,7 @@ def chain():
     ctx = dict(site=site, hub=hub, esp=esp, tracker=tracker, port=port, logs=logs, base_link=base_link)
     yield ctx
     stop.set()
-    hub.close()
+    hub.close()  # joins the serial reader before releasing the port
     tracker.close()
     ctx["esp"].unplug()
 

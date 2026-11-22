@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Silent Sentinel C2</title>
+<style>
+  :root {
+    --bg:#0d1216; --panel:#141b21; --panel2:#19222a; --fg:#e4eaee; --muted:#8d9ba6; --line:#25313a;
+    --ok:#3fb96b; --alert:#ff9f1c; --down:#e5484d; --off:#5e6b75; --track:#ff9f1c; --accent:#6ea8ff;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: baseline; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+  header h1 { margin: 0; font-size: 16px; letter-spacing: .04em; }
+  header .site { color: var(--muted); }
+  nav { margin-left: auto; display: flex; gap: 4px; }
+  nav a { color: var(--muted); text-decoration: none; padding: 3px 10px; border-radius: 6px; border: 1px solid transparent; }
+  nav a:hover { color: var(--fg); border-color: var(--line); }
+  nav a[aria-current] { color: var(--fg); background: var(--panel2); border-color: var(--line); }
+  header .clock { margin-left: 12px; font-family: ui-monospace, Menlo, monospace; color: var(--muted); }
+  #banner { margin: 14px 20px 0; border-radius: 10px; padding: 14px 18px; display: grid;
+    grid-template-columns: auto 1fr; gap: 2px 16px; align-items: center; border: 1px solid var(--line); background: var(--panel); }
+  #banner .light { grid-row: span 2; width: 18px; height: 18px; border-radius: 50%; }
+  #banner .title { font-size: 26px; font-weight: 700; letter-spacing: .03em; }
+  #banner .text { color: var(--fg); opacity: .9; }
+  #banner.clear .light { background: var(--ok); box-shadow: 0 0 0 6px rgba(63,185,107,.15); }
+  #banner.warn  .light { background: var(--alert); }
+  #banner.warn  { border-color: rgba(255,159,28,.5); }
+  #banner.alert { border-color: var(--alert); background: linear-gradient(90deg, rgba(255,159,28,.16), var(--panel) 60%); }
+  #banner.alert .light { background: var(--alert); animation: pulse 1.2s infinite; }
+  #banner.lost { border-color: var(--down); }
+  #banner.lost .light { background: var(--down); }
+  @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,159,28,.6);} 50% { box-shadow: 0 0 0 10px rgba(255,159,28,0);} }
+  #health { margin: 8px 20px 0; color: var(--muted); }
+  #health.bad { color: var(--down); }
+  main { display: grid; grid-template-columns: minmax(300px, 360px) 1fr minmax(280px, 340px); gap: 14px; padding: 14px 20px 20px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+  h3 { font-size: 12px; color: var(--muted); margin: 14px 0 4px; font-weight: 600; }
+  h3:first-of-type { margin-top: 0; }
+  .sensor { display: grid; grid-template-columns: 12px 1fr auto; gap: 2px 10px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+  .sensor:last-child { border-bottom: 0; }
+  .sensor.indent { padding-left: 14px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; }
+  .ok .dot { background: var(--ok); } .alert .dot { background: var(--alert); } .down .dot { background: var(--down); }
+  .off .dot, .unknown .dot { background: var(--off); }
+  .sensor .name { font-weight: 600; }
+  .sensor .name small { color: var(--muted); font-weight: 400; margin-left: 6px; }
+  .sensor .msg { grid-column: 2 / 4; color: var(--muted); font-size: 13px; }
+  .sensor.alert .msg { color: var(--alert); } .sensor.down .msg { color: var(--down); }
+  .tag { align-self: start; line-height: 18px; font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 99px; padding: 0 7px; white-space: nowrap; }
+  .ok .tag { color: var(--ok); border-color: rgba(63,185,107,.4); }
+  .alert .tag { color: var(--alert); border-color: rgba(255,159,28,.5); }
+  .down .tag { color: var(--down); border-color: rgba(229,72,77,.5); }
+  #plan { width: 100%; height: 100%; min-height: 420px; display: block; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .legend span::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: 0; }
+  .legend .l-ok::before { background: var(--ok); } .legend .l-alert::before { background: var(--alert); }
+  .legend .l-down::before { background: var(--down); } .legend .l-off::before { background: var(--off); }
+  .track { border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; margin-bottom: 8px; background: var(--panel2); }
+  .track.confirmed { border-color: rgba(255,159,28,.6); }
+  .track .head { display: flex; justify-content: space-between; font-weight: 700; }
+  .track .head .tag { font-weight: 400; }
+  .track .line { color: var(--muted); font-size: 13px; }
+  .track .line b { color: var(--fg); font-weight: 500; }
+  .empty { color: var(--muted); padding: 4px 0; }
+  #events { max-height: 340px; overflow-y: auto; }
+  .ev { display: grid; grid-template-columns: 62px 1fr; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .ev .time { color: var(--muted); font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+  .ev.alert .text { color: var(--alert); } .ev.warn .text { color: var(--down); } .ev.ok .text { color: var(--ok); }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } #plan { min-height: 360px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>SILENT SENTINEL · C2</h1>
+  <span class="site" id="site">connecting…</span>
+  <nav><a href="/" aria-current="page">All sensors</a><a href="/radar">Radar scope</a><a href="/camera">Camera</a></nav>
+  <span class="clock" id="clock"></span>
+</header>
+
+<div id="banner" class="clear" role="status" aria-live="polite">
+  <div class="light"></div>
+  <div class="title" id="verdict">Connecting…</div>
+  <div class="text" id="verdictText">Waiting for the C2.</div>
+</div>
+<div id="health" role="status"></div>
+
+<main>
+  <section aria-label="Sensors">
+    <h2>Sensors → C2</h2>
+    <div id="sensors"></div>
+    <div class="legend">
+      <span class="l-ok">connected</span><span class="l-alert">detecting</span>
+      <span class="l-down">not reporting</span><span class="l-off">not in use</span>
+    </div>
+  </section>
+
+  <section aria-label="Site plan">
+    <h2>Site plan <span style="text-transform:none;letter-spacing:0;font-weight:400">· north up</span></h2>
+    <svg id="plan" role="img" aria-label="Overhead plan of sensors and drone tracks"></svg>
+  </section>
+
+  <div style="display:grid;gap:14px;align-content:start;min-width:0">
+    <section aria-label="Drones">
+      <h2>Drones</h2>
+      <div id="tracks"></div>
+    </section>
+    <section aria-label="What happened">
+      <h2>What happened</h2>
+      <div id="events"></div>
+    </section>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const TAG = {ok: 'connected', alert: 'detecting', down: 'not reporting', off: 'not in use', unknown: 'unknown'};
+const GROUPS = [['receiver', 'Microphones (acoustic nodes)'], ['camera', 'Cameras'], ['radar', 'Radar']];
+let lastOk = 0;
+
+function sensorRow(s, indent) {
+  return `<div class="sensor ${s.status}${indent ? ' indent' : ''}">
+    <div class="dot"></div>
+    <div class="name">${esc(s.name)}${s.label ? `<small>${esc(s.label)}</small>` : ''}</div>
+    <span class="tag">${TAG[s.status] || s.status}</span>
+    <div class="msg">${esc(s.text)}</div></div>`;
+}
+
+function renderSensors(list) {
+  let html = '';
+  for (const [kind, title] of GROUPS) {
+    const rows = list.filter(s => s.kind === kind);
+    if (!rows.length) continue;
+    html += `<h3>${title}</h3>` + rows.map(s => sensorRow(s, false)).join('');
+    if (kind === 'receiver') html += list.filter(s => s.kind === 'node').map(s => sensorRow(s, true)).join('');
+  }
+  $('sensors').innerHTML = html;
+}
+
+function renderTracks(tracks) {
+  if (!tracks.length) { $('tracks').innerHTML = '<div class="empty">No drones right now.</div>'; return; }
+  $('tracks').innerHTML = tracks.map(t => {
+    const who = t.seen_by.length ? t.seen_by.join(' + ') : `nobody right now (last seen ${t.last_s.toFixed(0)} s ago, estimating)`;
+    const move = t.heading ? `moving <b>${t.heading}</b> at <b>${t.speed_mps.toFixed(0)} m/s</b>` : 'hovering';
+    const tag = !t.confirmed ? 'possible' : t.fresh ? 'tracked' : 'lost contact';
+    return `<div class="track ${t.confirmed && t.fresh ? 'confirmed' : ''}" style="${t.confirmed && !t.fresh ? 'opacity:.7' : ''}">
+      <div class="head"><span>Drone ${t.id}${t.label ? ' · ' + esc(t.label) : ''}</span>
+        <span class="tag">${tag}</span></div>
+      <div class="line">Seen by <b>${esc(who)}</b></div>
+      <div class="line">Position within <b>±${t.sigma_m.toFixed(0)} m</b>, ${move}</div>
+      ${t.f0 ? `<div class="line">Rotor sound ${t.f0.toFixed(0)} Hz</div>` : ''}</div>`;
+  }).join('');
+}
+
+function renderEvents(ev) {
+  $('events').innerHTML = ev.length ? ev.map(e =>
+    `<div class="ev ${e.level}"><span class="time">${e.time}</span><span class="text">${esc(e.text)}</span></div>`).join('')
+    : '<div class="empty">Nothing yet.</div>';
+}
+
+function renderPlan(s) {
+  const svg = $('plan'), W = svg.clientWidth || 600, H = svg.clientHeight || 420;
+  const pts = [];
+  for (const x of s.sensors) if (x.e != null) pts.push([x.e, x.n]);
+  for (const t of s.tracks) { pts.push([t.e, t.n]); for (const p of t.history) pts.push(p); }
+  if (!pts.length) { svg.innerHTML = `<text x="${W/2}" y="${H/2}" fill="#8d9ba6" text-anchor="middle">No sensor positions yet</text>`; return; }
+  let [x0, x1, y0, y1] = [Infinity, -Infinity, Infinity, -Infinity];
+  for (const [e, n] of pts) { x0 = Math.min(x0, e); x1 = Math.max(x1, e); y0 = Math.min(y0, n); y1 = Math.max(y1, n); }
+  const pad = 40, span = Math.max(x1 - x0, y1 - y0, 100);
+  const k = Math.min((W - 2 * pad) / Math.max(x1 - x0, 1), (H - 2 * pad) / Math.max(y1 - y0, 1), (Math.min(W, H) - 2 * pad) / span * 2);
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  const X = e => W / 2 + (e - cx) * k, Y = n => H / 2 - (n - cy) * k;
+  const col = st => ({ok: 'var(--ok)', alert: 'var(--alert)', down: 'var(--down)'}[st] || 'var(--off)');
+  let g = '';
+  // scale bar
+  const nice = [10, 20, 50, 100, 200, 500, 1000].find(m => m * k > 60) || 1000;
+  g += `<g stroke="#8d9ba6" fill="#8d9ba6" font-size="11"><line x1="16" y1="${H-16}" x2="${16 + nice * k}" y2="${H-16}" stroke-width="2"/>
+        <text x="16" y="${H-22}" stroke="none">${nice} m</text>
+        <text x="${W-18}" y="22" text-anchor="middle" stroke="none" font-weight="700">N</text>
+        <path d="M${W-18},28 l-5,12 h10 z" stroke="none"/></g>`;
+  // tracks
+  for (const t of s.tracks) {
+    const c = t.confirmed && t.fresh ? 'var(--track)' : '#8d9ba6';
+    const trail = t.history.slice(-25);  // recent path only; early fixes are rough
+    if (trail.length > 1)
+      g += `<polyline fill="none" stroke="${c}" stroke-opacity=".45" stroke-width="2" points="${trail.map(([e, n]) => X(e) + ',' + Y(n)).join(' ')}"/>`;
+    g += `<circle cx="${X(t.e)}" cy="${Y(t.n)}" r="${Math.max(8, t.sigma_m * k)}" fill="${c}" fill-opacity=".12" stroke="${c}" stroke-dasharray="4 3"/>
+          <circle cx="${X(t.e)}" cy="${Y(t.n)}" r="6" fill="${c}"/>
+          <text x="${X(t.e) + 10}" y="${Y(t.n) - 10}" fill="${c}" font-size="12" font-weight="700">Drone ${t.id}${t.fresh ? '' : ' (last estimate)'}</text>`;
+  }
+  // sensors
+  for (const x of s.sensors) {
+    if (x.e == null) continue;
+    const px = X(x.e), py = Y(x.n), c = col(x.status);
+    if (x.kind === 'camera' && x.yaw != null) {  // field of view: where this camera is looking
+      const half = (x.hfov || 60) / 2, L = Math.max(60, Math.min(W, H) / 5);
+      const pt = a => [px + Math.sin(a * Math.PI / 180) * L, py - Math.cos(a * Math.PI / 180) * L];
+      const [ax, ay] = pt(x.yaw - half), [bx, by] = pt(x.yaw + half);
+      g += `<path d="M${px},${py} L${ax},${ay} A${L},${L} 0 0 1 ${bx},${by} Z" fill="${c}" fill-opacity=".10" stroke="${c}" stroke-opacity=".5"/>`;
+    }
+    const shape = x.kind === 'camera' ? `<rect x="${px-7}" y="${py-7}" width="14" height="14" rx="2" fill="${c}"/>`
+      : x.kind === 'radar' ? `<path d="M${px},${py-9} L${px+8},${py+6} L${px-8},${py+6} Z" fill="${c}"/>`
+      : `<circle cx="${px}" cy="${py}" r="6" fill="${c}"/>` + (x.detecting ? `<circle cx="${px}" cy="${py}" r="12" fill="none" stroke="${c}"/>` : '');
+    const label = x.kind === 'node' ? x.name.replace('Node ', 'N') : x.name.replace('Camera ', '').replace('Radar ', '');
+    g += shape + `<text x="${px}" y="${py + 20}" fill="#c3ccd3" font-size="11" text-anchor="middle">${esc(label)}</text>`;
+  }
+  g += `<g font-size="11" fill="#8d9ba6"><circle cx="20" cy="18" r="5" fill="#8d9ba6"/><text x="30" y="22">microphone</text>
+        <rect x="104" y="12" width="11" height="11" rx="2"/><text x="121" y="22">camera</text>
+        <path d="M184,12 l6,11 h-12 z"/><text x="196" y="22">radar</text></g>`;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.innerHTML = g;
+}
+
+function render(s) {
+  $('site').textContent = s.site;
+  const b = $('banner');
+  b.className = s.verdict.level;
+  $('verdict').textContent = s.verdict.title;
+  $('verdictText').textContent = s.verdict.text;
+  $('health').textContent = s.health;
+  $('health').className = s.health_ok ? '' : 'bad';
+  renderSensors(s.sensors);
+  renderTracks(s.tracks);
+  renderEvents(s.events);
+  renderPlan(s);
+}
+
+async function tick() {
+  try {
+    const r = await fetch('state.json', {cache: 'no-store'});
+    render(await r.json());
+    lastOk = Date.now();
+  } catch (e) {
+    if (Date.now() - lastOk > 3000) {
+      $('banner').className = 'lost';
+      $('verdict').textContent = 'NO CONNECTION TO C2';
+      $('verdictText').textContent = 'This screen can’t reach the C2. Check that it is still running.';
+    }
+  }
+  $('clock').textContent = new Date().toLocaleTimeString();
+}
+tick();
+setInterval(tick, 1000);
+addEventListener('resize', tick);
+</script>
+</body>
+</html>

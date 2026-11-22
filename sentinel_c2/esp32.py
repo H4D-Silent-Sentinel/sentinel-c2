@@ -31,14 +31,17 @@ class Esp32Link:
         self._thread.start()
         return self
 
-    def close(self):
+    def close(self, timeout_s: float = 2.0):
+        """Stop the reader and release the port. The reader thread closes its own port (readline
+        returns within 0.5 s); closing it from here while that thread is inside read() can block
+        in the kernel on macOS, so only fall back to that if the thread doesn't exit in time."""
         self._stop.set()
-        ser = self._ser
+        if self._thread.is_alive() and threading.current_thread() is not self._thread:
+            self._thread.join(timeout_s)
+        with self._wlock:
+            ser, self._ser = self._ser, None
         if ser:
-            try:
-                ser.close()
-            except Exception:
-                pass
+            _release(ser)
 
     # -- downlink ---------------------------------------------------------------
     def send_packet(self, pkt: Packet) -> bool:
@@ -88,11 +91,10 @@ class Esp32Link:
                     self.log(f"esp32: lost {self.port} ({e}); retrying")
             finally:
                 with self._wlock:
+                    mine = self._ser is ser
                     self._ser, self.state = None, "down"
-                try:
-                    ser.close()
-                except Exception:
-                    pass
+                if mine:
+                    _release(ser)
             self._stop.wait(self.retry_s)
 
     def _on_line(self, line: str):
@@ -120,3 +122,17 @@ class Esp32Link:
             return
         self.rx_packets += 1
         self.base.on_packet(pkt, self.last_rx)
+
+
+def _release(ser):
+    """Close a serial port without waiting on unsent output. A tty close drains pending output
+    first, and if the other end is gone (cable pulled, ESP32 reset) macOS can wait on that
+    indefinitely, ignoring Ctrl-C."""
+    try:
+        ser.reset_output_buffer()
+    except Exception:
+        pass
+    try:
+        ser.close()
+    except Exception:
+        pass

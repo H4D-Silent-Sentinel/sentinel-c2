@@ -18,11 +18,18 @@ def cmd_run(a):
 
     site = Site.load(a.site)
     hub = Hub(site, a.serial, a.tracker, a.visual_port, a.cue_port,
-              broadcast=None if a.no_broadcast else a.broadcast, hints_enabled=not a.no_hints)
+              broadcast=None if a.no_broadcast else a.broadcast, hints_enabled=not a.no_hints,
+              radar_port=None if a.no_radar else a.radar_port)
     if a.map or a.cot:
         from cuas.__main__ import _outputs
         _outputs(SimpleNamespace(map=a.map, map_port=a.map_port, cot=a.cot), hub.base)
     hub.start()
+    if a.ui:
+        from .ui import TrackerControl, _find_visual_tracker, serve
+        serve(hub, host=a.ui_host, port=a.ui_port,
+              tracker=TrackerControl(a.visual_tracker or _find_visual_tracker(), url=a.tracker_url))
+        if a.open:
+            open_window(f"http://127.0.0.1:{a.ui_port}")
     print(f"sentinel-c2 up: {len(site.nodes)} nodes, ESP32 {'on ' + a.serial if a.serial else 'off'}, "
           f"trackers {a.tracker or 'auto'}. Ctrl-C to stop.", flush=True)
 
@@ -32,13 +39,29 @@ def cmd_run(a):
         trk = ", ".join(f"{p.src}{'' if p.up else '(DOWN)'}" for p in peers) or "none yet"
         tracks = " | ".join(f"T{t['id']} ±{t['sigma_m']:.0f}m {'/'.join(t['sources'])}"
                             for t in snap if t["confirmed"]) or "no tracks"
+        rad = ", ".join(f"{k}{'' if up else '(DOWN)'}" for k, up in st["radars"].items()) or "none"
         print(f"{time.strftime('%H:%M:%S')} esp32 {st['esp32']} nodes {st['nodes_online']}/{st['nodes_total']} "
-              f"trackers [{trk}]  {tracks}", flush=True)
+              f"trackers [{trk}] radars [{rad}]  {tracks}", flush=True)
 
     try:
         hub.run_forever(1.0, show)
     except KeyboardInterrupt:
         hub.close()
+
+
+def open_window(url: str):
+    """Open the dashboard in its own app-style window (Chrome/Edge --app), else the default browser."""
+    import shutil
+    import subprocess
+    import webbrowser
+    mac = ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+           "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
+    for exe in mac + [shutil.which(n) for n in ("google-chrome", "chromium", "chromium-browser", "msedge")]:
+        if exe and shutil.os.path.exists(exe):
+            subprocess.Popen([exe, f"--app={url}", "--window-size=1440,900"],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return
+    webbrowser.open(url)
 
 
 def cmd_ports(_):
@@ -61,6 +84,15 @@ def main(argv=None):
     ap.add_argument("--broadcast", default="255.255.255.255", help="where to announce before any tracker is heard")
     ap.add_argument("--no-broadcast", action="store_true")
     ap.add_argument("--no-hints", action="store_true", help="don't send re-acquire hints to the nodes")
+    ap.add_argument("--radar-port", type=int, default=47012, help="where radar reports arrive")
+    ap.add_argument("--no-radar", action="store_true")
+    ap.add_argument("--ui", action="store_true", help="serve the operator dashboard")
+    ap.add_argument("--ui-port", type=int, default=8090)
+    ap.add_argument("--ui-host", default="127.0.0.1", help="0.0.0.0 to view the dashboard from other machines")
+    ap.add_argument("--open", action="store_true", help="with --ui: open the dashboard in its own window")
+    ap.add_argument("--visual-tracker", help="Visual-Tracker folder, for the Camera tab's Start button "
+                                             "(default: ../Visual-Tracker next to this repo)")
+    ap.add_argument("--tracker-url", default="http://127.0.0.1:8001", help="Visual-Tracker dashboard address")
     ap.add_argument("--map", action="store_true", help="serve silent-sentinel's live map")
     ap.add_argument("--map-port", type=int, default=8080)
     ap.add_argument("--cot", nargs="?", const="udp://239.2.3.1:6969", help="send CoT to TAK")
