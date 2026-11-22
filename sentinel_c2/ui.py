@@ -7,7 +7,8 @@ GET /            the dashboard: every sensor and the C2's picture
 GET /radar       the radar scope: what each radar sees, as a classic radar display
 GET /camera      the camera tracker (Visual-Tracker's Live view), with a button to start it
 GET /state.json, /radar.json, /api/tracker   the data behind each page (also handy for scripts)
-POST /api/tracker/start, /api/tracker/link   start Visual-Tracker / switch on its link to the C2
+POST /api/tracker/start, /api/tracker/link, /api/tracker/standin?on=1|0
+                 start Visual-Tracker / switch on its link to the C2 / phone stands in for the drone
                  (only accepted from this machine)
 """
 from __future__ import annotations
@@ -162,7 +163,8 @@ def summary(hub, now: float | None = None) -> dict:
 def _track_sentence(t: dict) -> str:
     who = " + ".join(t["seen_by"]) if t["seen_by"] else "no sensor right now (estimating)"
     move = f", moving {t['heading']} at {t['speed_mps']:.0f} m/s" if t["heading"] else ", hovering"
-    return f"Drone {t['id']} seen by {who}, position ±{t['sigma_m']:.0f} m{move}"
+    tag = f" ({t['label']})" if t.get("label") else ""
+    return f"Drone {t['id']}{tag} seen by {who}, position ±{t['sigma_m']:.0f} m{move}"
 
 
 class EventLog:
@@ -278,7 +280,18 @@ class TrackerControl:
         return dict(state=self.state, running=running, url=self.url, message=self.message, problem=problem,
                     can_start=sys.platform == "darwin" and problem is None,
                     sending=bool(link.get("enabled")), c2_up=bool((link.get("c2") or {}).get("up")),
-                    src=link.get("src"), cue=link.get("cue"))
+                    src=link.get("src"), cue=link.get("cue"),
+                    standin=bool(((stats or {}).get("settings") or {}).get("standin")))
+
+    def set_standin(self, on: bool) -> bool:
+        """Phone stand-in: the tracker reports a cell phone as the drone (testing without a drone)."""
+        try:
+            self._get(f"/live/set?standin={'1' if on else '0'}")
+            self.log(f"camera tracker: phone stand-in {'on' if on else 'off'}")
+            return True
+        except Exception as e:
+            self.message = f"Couldn't change phone stand-in: {e}"
+            return False
 
     def configure(self) -> bool:
         try:
@@ -360,6 +373,9 @@ def serve(hub, host: str = "127.0.0.1", port: int = 8090, log=print, tracker: Tr
                 out = tracker.start()
             elif path == "/api/tracker/link":
                 tracker.configure()
+                out = tracker.status()
+            elif path == "/api/tracker/standin":
+                tracker.set_standin("on=1" in self.path)
                 out = tracker.status()
             else:
                 self.send_error(404)

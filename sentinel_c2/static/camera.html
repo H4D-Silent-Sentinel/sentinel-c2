@@ -51,13 +51,15 @@
   <span class="pill"><span class="dot" id="dSend"></span>Sending to C2<b id="tSend">—</b></span>
   <span class="pill"><span class="dot" id="dC2"></span>C2 hears it<b id="tC2">—</b></span>
   <button class="secondary" id="linkBtn" hidden>Turn on sending</button>
+  <label class="pill" style="cursor:pointer;gap:6px"><input type="checkbox" id="standin"> Phone stands in for the drone</label>
   <span style="margin-left:auto;color:var(--muted)">In the tracker: pick the camera, then set <b style="color:var(--fg);font-weight:500">Camera faces</b> to your compass heading.</span>
 </div>
 
 <div id="view">
   <div id="start">
     <h2>Camera tracker is off</h2>
-    <p>Starts Visual-Tracker (the YOLO v4 drone detector) and connects it to this C2. Its live view will show here.</p>
+    <p>Starts Visual-Tracker (the YOLO v4 drone detector) and connects it to this C2. Its live view will show here.
+      No drone to fly? Once it's running, tick <b>Phone stands in for the drone</b> and hold up a second phone.</p>
     <button id="startBtn">Start camera tracker</button>
     <div id="msg" role="status" aria-live="polite"></div>
     <ol>
@@ -82,6 +84,7 @@ function render(s) {
     set('dSend', 'tSend', s.sending ? 'ok' : 'warn', s.sending ? `yes, as ${s.src || 'post-1'}` : 'no');
     set('dC2', 'tC2', s.c2_up ? 'ok' : (s.sending ? 'warn' : ''), s.c2_up ? 'yes' : (s.sending ? 'waiting…' : '—'));
     $('linkBtn').hidden = !!s.sending;
+    if (document.activeElement !== $('standin')) $('standin').checked = !!s.standin;
     if (!shown) {
       $('view').innerHTML = `<iframe src="${s.url}/#live" title="Visual-Tracker live view" allow="camera"></iframe>`;
       shown = true;
@@ -107,6 +110,7 @@ $('startBtn').onclick = async () => {
   $('startBtn').disabled = true;
   render(await (await fetch('/api/tracker/start', {method: 'POST'})).json());
 };
+$('standin').onchange = async e => render(await (await fetch('/api/tracker/standin?on=' + (e.target.checked ? 1 : 0), {method: 'POST'})).json());
 $('linkBtn').onclick = async () => render(await (await fetch('/api/tracker/link', {method: 'POST'})).json());
 tick(); setInterval(tick, 1500);
 </script>

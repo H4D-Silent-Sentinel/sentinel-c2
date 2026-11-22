@@ -42,6 +42,19 @@ def test_verdicts_follow_what_the_sensors_see():
     hub.close()
 
 
+def test_stand_in_is_named_wherever_the_drone_is():
+    hub = make_hub()
+    for t in range(1000, 1010):
+        obs = dict(camera_obs(hub.base.site), label="phone stand-in")
+        hub.trackers.on_datagram(json.dumps(visual_msg(t, [obs])).encode(), "10.0.0.9", now=t)
+        hub.step(float(t) + 0.5)
+    s = summary(hub, 1009.6)
+    assert s["verdict"]["title"] == "DRONE TRACKED", s["verdict"]
+    assert "(phone stand-in)" in s["verdict"]["text"]
+    assert s["tracks"][0]["label"] == "phone stand-in"
+    hub.close()
+
+
 def test_event_log_reads_like_english():
     hub = make_hub()
     hub.step(999.0)  # C2 up first, sensors arrive after
@@ -87,17 +100,18 @@ def test_camera_tab_starts_tracker_and_turns_on_its_link(tmp_path):
     (vt / ".venv" / "bin").mkdir(parents=True)
     (vt / ".venv" / "bin" / "python").write_text("")
     (vt / "Start Tracker.command").write_text("")
-    settings = {"link": False, "model": "v3"}
+    settings = {"link": False, "model": "v3", "standin": False}
 
     class FakeVT(BaseHTTPRequestHandler):
         def do_GET(self):
             u = urlparse(self.path)
             if u.path == "/live/set":
                 for k, v in parse_qs(u.query).items():
-                    settings[k] = v[0] in ("1", "true") if k == "link" else v[0]
+                    settings[k] = v[0] in ("1", "true") if k in ("link", "standin") else v[0]
                 body = b'{"ok": true}'
             else:
-                body = json.dumps({"link": {"enabled": settings["link"], "src": "post-1",
+                body = json.dumps({"settings": {"standin": settings["standin"]},
+                                   "link": {"enabled": settings["link"], "src": "post-1",
                                             "c2": {"up": settings["link"]}}}).encode()
             self.send_response(200)
             self.end_headers()
@@ -126,8 +140,11 @@ def test_camera_tab_starts_tracker_and_turns_on_its_link(tmp_path):
         st = json.loads(urllib.request.urlopen(req).read())
         assert st["running"] is True  # fake tracker came up during start
         st = json.loads(urllib.request.urlopen(base + "/api/tracker").read())
-        assert settings == {"link": True, "model": "v4"}
-        assert st["sending"] is True and st["c2_up"] is True
+        assert settings == {"link": True, "model": "v4", "standin": False}
+        assert st["sending"] is True and st["c2_up"] is True and st["standin"] is False
+        req = urllib.request.Request(base + "/api/tracker/standin?on=1", method="POST")
+        st = json.loads(urllib.request.urlopen(req).read())
+        assert settings["standin"] is True and st["standin"] is True
     finally:
         srv.shutdown()
         if "srv" in fake:
