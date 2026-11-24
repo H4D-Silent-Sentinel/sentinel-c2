@@ -57,7 +57,8 @@ Each second the console prints the ESP32 link state, nodes online, each tracker 
 
 ## Radar (simulated)
 
-There is no real radar yet. A real one transmits RF and needs spectrum authorization, so the C2 is tested against a software stand-in that only sends UDP packets:
+There is no real radar yet. **(Radar order complete as of 11/24)**
+A real one transmits RF and needs spectrum authorization, so the C2 is tested against a software stand-in that only sends UDP packets:
 
 ```sh
 python -m sentinel_c2 --site path/to/site.json                    # terminal 1
