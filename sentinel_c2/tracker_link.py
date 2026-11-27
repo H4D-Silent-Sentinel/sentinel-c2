@@ -41,6 +41,7 @@ class TrackerLink:
         self.base, self.cue_port, self.log = base, cue_port, log
         self.static, self.broadcast, self.timeout_s = list(static or []), broadcast, timeout_s
         self.cue_interval_s = cue_interval_s
+        self.gate = None  # optional: () -> bool; False drops camera reports (operator mute)
         self.peers: dict[tuple[str, str], TrackerPeer] = {}  # (ip, camera src) -> peer
         self._lock = threading.Lock()
         self._last_cue: dict[int, float] = {}
@@ -107,7 +108,7 @@ class TrackerLink:
         except (ValueError, KeyError, TypeError) as e:
             self.log(f"trackers: unusable report from {ip} ({e})")
             return
-        if obs:
+        if obs and (self.gate is None or self.gate()):
             self.base.on_visual(obs)
 
     def check_health(self, now: float | None = None) -> list[TrackerPeer]:

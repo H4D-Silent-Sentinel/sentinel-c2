@@ -23,6 +23,7 @@ class Esp32Link:
         self.last_rx = 0.0  # host time of last line from the ESP32
         self.rx_packets = self.tx_ok = self.tx_err = self.bad_lines = 0
         self._ser = None
+        self.gate = None  # optional: pkt -> bool; False drops the report (operator mute)
         self._wlock = threading.Lock()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True, name="esp32")
@@ -121,6 +122,8 @@ class Esp32Link:
         if pkt.type == PktType.HINT:  # our own downlink echoed by a USB node; not a report
             return
         self.rx_packets += 1
+        if self.gate and not self.gate(pkt):
+            return
         self.base.on_packet(pkt, self.last_rx)
 
 

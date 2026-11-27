@@ -18,6 +18,7 @@ The fusion itself (packet ingest, loudness localization, Kalman tracker, map, TA
 | UDP 47011 | C2 → tracker | `cue` for each confirmed track | ≤ 1 Hz per track |
 | UDP 47011 | C2 → tracker | `status` heartbeat with link and node health | 1 Hz, always |
 | UDP 47012 | radar → C2 | `radar` plots: range, azimuth, elevation, radial velocity (an empty list is its heartbeat) | each scan |
+| UDP 47013 | hand controller → C2 | `control` on each switch or stick change; `controls` heartbeat with switch positions ([tango](https://github.com/H4D-Silent-Sentinel/tango)) | on change, plus 1 Hz |
 
 ## Operator app (no hardware needed to try it)
 
@@ -80,6 +81,19 @@ Message format and C2 ingest are in `sentinel_c2/radar.py`. A real radar plugs i
 Radar counts like a camera for node hints: if the radar still has a drone the nodes lost, they get re-cued.
 
 A radar plot only reaches the tracker once the radar has reported the same track ID twice in a row. One-off plots (birds, clutter) are shown on the scope but never fused. A coasting track has a wide gate, and one-off plots used to keep a stale track alive, so one drone showed as two. Across replayed demo flights, that went from 20–34 s of a phantom second drone in half the runs to none (`tests/test_radar.py`).
+
+## Hand controller (tango)
+
+A TBS Tango 2 in USB joystick mode, read by [tango](https://github.com/H4D-Silent-Sentinel/tango) on the same laptop. ROAREE applies its controls in `sentinel_c2/operator.py`:
+
+| Control | Effect in ROAREE |
+|---|---|
+| `mute_acoustic`, `mute_radar`, `mute_camera` | that sensor group's reports are not fused while the switch is on; the dashboard marks them "Muted by operator" |
+| `node_select` + `node_toggle` | pick a listening node; toggle ignores or restores its reports |
+| `tak_out` | CoT output to TAK on or off (with `--cot`) |
+| `track_select` | focus a track on the dashboard |
+
+The dashboard lists the controller under "Hand controller": connected, lost (no heartbeat for 2.5 s or unplugged), and current mutes. Every change goes to the event list. `--no-operator` turns the listener off.
 
 ## Keeping the nodes on target (HINT downlink)
 

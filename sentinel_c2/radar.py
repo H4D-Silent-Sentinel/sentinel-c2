@@ -96,6 +96,7 @@ class RadarLink:
         self.radars: dict[str, dict] = {}  # src -> {"ip", "last_heard", "msgs", "plots", "up"}
         self._lock = threading.Lock()
         self._stop = threading.Event()
+        self.gate = None  # optional: () -> bool; False keeps radar out of fusion (operator mute)
         self._streak: dict[str, dict] = {}  # src -> {radar track id: consecutive reports}
         self.plots: dict[str, deque] = {}  # src -> recent plots, for the radar scope
         self.coverage: dict[str, dict] = {}  # src -> max_range_m / scan_s / shadows, if the radar sends them
@@ -149,7 +150,7 @@ class RadarLink:
         streak = {o.track_id: prev.get(o.track_id, 0) + 1 for o in obs if o.track_id is not None}
         self._streak[src] = streak  # ids missing from this report start over
         with self.base.lock:
-            for o in obs:
+            for o in (obs if self.gate is None or self.gate() else []):
                 n_seen = streak.get(o.track_id, 0)
                 if n_seen < UPDATE_SCANS:
                     continue

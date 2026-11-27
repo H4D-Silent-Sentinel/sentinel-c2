@@ -99,7 +99,7 @@ def chain():
     port = os.path.join(d, "esp32")
     esp = FakeBaseRx(port)
     logs = []
-    hub = Hub(site, serial_port=port, trackers=["127.0.0.1"], visual_port=0, cue_port=0, broadcast=None, radar_port=0,
+    hub = Hub(site, serial_port=port, trackers=["127.0.0.1"], visual_port=0, cue_port=0, broadcast=None, radar_port=0, operator_port=0,
               hint_cfg=HintConfig(resend_s=1.0), log=logs.append)
     hub.esp.retry_s = 0.2
     old = os.environ.pop("VT_BASE", None)

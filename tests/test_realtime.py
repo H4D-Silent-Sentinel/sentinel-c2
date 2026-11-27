@@ -11,7 +11,7 @@ from scenario import detection, load_site
 
 
 def make_hub():
-    return Hub(load_site(), serial_port=None, visual_port=0, cue_port=0, broadcast=None, radar_port=0,
+    return Hub(load_site(), serial_port=None, visual_port=0, cue_port=0, broadcast=None, radar_port=0, operator_port=0,
                log=lambda *_: None)
 
 

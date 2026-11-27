@@ -19,10 +19,17 @@ def cmd_run(a):
     site = Site.load(a.site)
     hub = Hub(site, a.serial, a.tracker, a.visual_port, a.cue_port,
               broadcast=None if a.no_broadcast else a.broadcast, hints_enabled=not a.no_hints,
-              radar_port=None if a.no_radar else a.radar_port)
-    if a.map or a.cot:
+              radar_port=None if a.no_radar else a.radar_port,
+              operator_port=None if a.no_operator else a.operator_port)
+    if a.map:
         from cuas.__main__ import _outputs
-        _outputs(SimpleNamespace(map=a.map, map_port=a.map_port, cot=a.cot), hub.base)
+        _outputs(SimpleNamespace(map=a.map, map_port=a.map_port, cot=None), hub.base)
+    if a.cot:  # CoT to TAK; the hand controller's TAK switch turns it off and on
+        from cuas.cot import CotSender
+        cot, op, frame = CotSender(a.cot), hub.operator, site.frame
+        hub.base.on_track.append(lambda tr: op.tak_out and tr["confirmed"] and cot.track(tr, frame))
+        hub.base.on_node.append(lambda node, s: op.tak_out and node and cot.node(node, s))
+        print(f"cot: sending to {a.cot}")
     hub.start()
     if a.ui:
         from .ui import TrackerControl, _find_visual_tracker, serve
@@ -86,6 +93,8 @@ def main(argv=None):
     ap.add_argument("--no-hints", action="store_true", help="don't send re-acquire hints to the nodes")
     ap.add_argument("--radar-port", type=int, default=47012, help="where radar reports arrive")
     ap.add_argument("--no-radar", action="store_true")
+    ap.add_argument("--operator-port", type=int, default=47013, help="where the tango hand controller sends")
+    ap.add_argument("--no-operator", action="store_true")
     ap.add_argument("--ui", action="store_true", help="serve the operator dashboard")
     ap.add_argument("--ui-port", type=int, default=8090)
     ap.add_argument("--ui-host", default="127.0.0.1", help="0.0.0.0 to view the dashboard from other machines")

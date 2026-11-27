@@ -15,6 +15,7 @@ from cuas.config import Site
 
 from .esp32 import Esp32Link
 from .hints import HintConfig, HintPolicy
+from .operator import OPERATOR_PORT, Operator
 from .radar import RADAR_PORT, RadarLink
 from .ui import EventLog, summary
 from .tracker_link import TrackerLink
@@ -27,7 +28,7 @@ class Hub:
     def __init__(self, site: Site, serial_port: str | None = None, trackers: list[str] | None = None,
                  visual_port: int = 47010, cue_port: int = 47011, broadcast: str | None = "255.255.255.255",
                  hint_cfg: HintConfig | None = None, hints_enabled: bool = True,
-                 radar_port: int | None = RADAR_PORT, log=print):
+                 radar_port: int | None = RADAR_PORT, operator_port: int | None = OPERATOR_PORT, log=print):
         self.log = log
         self.base = Base(site)
         self.esp = Esp32Link(serial_port, self.base, log=log) if serial_port else None
@@ -37,6 +38,12 @@ class Hub:
         self.hints = HintPolicy(self.base, self._send_hint, hint_cfg, log=log)
         self.hints_enabled = hints_enabled
         self.events = EventLog()
+        self.operator = Operator(self, operator_port, log=log)
+        if self.esp:
+            self.esp.gate = self.operator.accepts_packet
+        self.trackers.gate = lambda: self.operator.accepts("camera")
+        if self.radar:
+            self.radar.gate = lambda: self.operator.accepts("radar")
         self.seq = 0
         self.snap: list[dict] = []
         self.version = 0  # bumps on every fusion cycle; the dashboard streams on change
@@ -51,6 +58,7 @@ class Hub:
         self.trackers.start()
         if self.radar:
             self.radar.start()
+        self.operator.start()
         return self
 
     def close(self):
@@ -59,6 +67,7 @@ class Hub:
         self.trackers.close()
         if self.radar:
             self.radar.close()
+        self.operator.close()
 
     def status(self, snap: list[dict], now: float) -> dict:
         with self.base.lock:

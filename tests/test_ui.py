@@ -12,7 +12,7 @@ from scenario import camera_obs, detection, load_site, visual_msg
 
 
 def make_hub():
-    return Hub(load_site(), serial_port=None, visual_port=0, cue_port=0, broadcast=None, radar_port=0, log=lambda *_: None)
+    return Hub(load_site(), serial_port=None, visual_port=0, cue_port=0, broadcast=None, radar_port=0, operator_port=0, log=lambda *_: None)
 
 
 def feed(hub, t0, t1, hearing=(1, 2, 3, 4, 5, 6), camera=True):

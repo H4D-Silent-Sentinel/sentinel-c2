@@ -131,6 +131,15 @@ def summary(hub, now: float | None = None) -> dict:
             sensors.append(dict(kind="radar", id=f"radar-{rid}", name=f"Radar {rid}", label="", status=st,
                                 text=text, e=r.get("e"), n=r.get("n")))
 
+    # -- operator hand controller, and what it has muted ---------------------------------
+    op = getattr(hub, "operator", None)
+    if op is not None:
+        for s in sensors:
+            if (s["kind"] == "node" and int(s["id"][5:]) in op.ignored) or \
+               {"node": "acoustic", "receiver": "acoustic", "camera": "camera", "radar": "radar"}.get(s["kind"]) in op.muted:
+                s["status"], s["text"] = "off", "Muted by operator. " + s["text"]
+        sensors.append(op.view(now))
+
     # -- tracks -------------------------------------------------------------------------
     tracks = []
     with base.lock:
@@ -144,7 +153,7 @@ def summary(hub, now: float | None = None) -> dict:
         tracks.append(dict(id=tr["id"], confirmed=tr["confirmed"], fresh=bool(fresh), e=tr["e"], n=tr["n"], sigma_m=tr["sigma_m"],
                            speed_mps=speed, heading=heading if speed >= 0.5 else None, seen_by=fresh,
                            ever_by=sorted(source_name(s) for s in srcs), last_s=tr["coast_s"], label=tr["label"],
-                           f0=tr["f0"], history=[(round(e, 1), round(n, 1)) for e, n in tr["history"]]))
+                           f0=tr["f0"], selected=op is not None and op.track == tr["id"], history=[(round(e, 1), round(n, 1)) for e, n in tr["history"]]))
     tracks.sort(key=lambda t: (not (t["confirmed"] and t["fresh"]), not t["confirmed"], t["id"]))
 
     # -- verdict ------------------------------------------------------------------------
