@@ -230,23 +230,29 @@ function render(s) {
   renderPlan(s);
 }
 
-async function tick() {
-  try {
-    const r = await fetch('state.json', {cache: 'no-store'});
-    render(await r.json());
-    lastOk = Date.now();
-  } catch (e) {
-    if (Date.now() - lastOk > 3000) {
-      $('banner').className = 'lost';
-      $('verdict').textContent = 'NO CONNECTION TO C2';
-      $('verdictText').textContent = 'This screen can’t reach the C2. Check that it is still running.';
-    }
+// Live: the C2 pushes new state on every fusion cycle (server-sent events).
+let last = null;
+function show(s) { last = s; render(s); lastOk = Date.now(); }
+async function poll() {  // first paint, and fallback if the stream is unavailable
+  try { show(await (await fetch('state.json', {cache: 'no-store'})).json()); } catch (e) {}
+}
+function watchdog() {
+  if (Date.now() - lastOk > 3000) {
+    $('banner').className = 'lost';
+    $('verdict').textContent = 'NO CONNECTION TO C2';
+    $('verdictText').textContent = 'This screen can’t reach the C2. Check that it is still running.';
+    if (!window.EventSource) poll();
   }
   $('clock').textContent = new Date().toLocaleTimeString();
 }
-tick();
-setInterval(tick, 1000);
-addEventListener('resize', tick);
+poll();
+if (window.EventSource) {
+  const es = new EventSource('events');  // reconnects by itself if the C2 restarts
+  es.onmessage = e => show(JSON.parse(e.data));
+  es.addEventListener('ping', () => { lastOk = Date.now(); });
+} else setInterval(poll, 1000);
+setInterval(watchdog, 1000);
+addEventListener('resize', () => last && render(last));
 </script>
 </body>
 </html>

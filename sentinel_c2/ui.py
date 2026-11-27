@@ -7,6 +7,8 @@ GET /            the dashboard: every sensor and the C2's picture
 GET /radar       the radar scope: what each radar sees, as a classic radar display
 GET /camera      the camera tracker (Visual-Tracker's Live view), with a button to start it
 GET /state.json, /radar.json, /api/tracker   the data behind each page (also handy for scripts)
+GET /events, /events/radar   the same state.json / radar.json, pushed on every fusion cycle
+                 (server-sent events, ≤10 per second) so the pages update the moment data arrives
 POST /api/tracker/start, /api/tracker/link, /api/tracker/standin?on=1|0
                  start Visual-Tracker / switch on its link to the C2 / phone stands in for the drone
                  (only accepted from this machine)
@@ -353,8 +355,35 @@ def serve(hub, host: str = "127.0.0.1", port: int = 8090, log=print, tracker: Tr
     lock = threading.Lock()
 
     class H(BaseHTTPRequestHandler):
+        def _stream(self, view):
+            """Server-sent events: push `view()` after every fusion cycle; a ping every second
+            keeps the connection open and lets the page tell the C2 is still alive."""
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Connection", "keep-alive")
+            self.end_headers()
+            seen = -1
+            try:
+                while True:
+                    v = hub.wait_version(seen, 1.0)
+                    if v == seen:
+                        self.wfile.write(b"event: ping\ndata: 1\n\n")
+                    else:
+                        seen = v
+                        with lock:
+                            body = json.dumps(view(), separators=(",", ":"))
+                        self.wfile.write(f"data: {body}\n\n".encode())
+                    self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                return
+
         def do_GET(self):
             path = self.path.split("?")[0]
+            if path == "/events":
+                return self._stream(lambda: summary(hub))
+            if path == "/events/radar":
+                return self._stream(lambda: radar_view(hub))
             if path in ("/state.json", "/radar.json"):
                 with lock:
                     body = json.dumps(summary(hub) if path == "/state.json" else radar_view(hub)).encode()

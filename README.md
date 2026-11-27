@@ -31,6 +31,7 @@ A real run with the dashboard: add `--ui --open` to the normal command. It opens
 - **Radar scope** (`/radar`): a classic radar display with the sweep, range rings, contacts fading over 12 s, building shadows hatched, and the C2's fused drones on top.
 - **Camera** (`/camera`): a **Start camera tracker** button. It runs Visual-Tracker's own `Start Tracker.command`, so macOS camera permission works and its logs stay visible in a Terminal window. Once Visual-Tracker answers, the C2 switches on its link to the C2 with the v4 model and shows its Live view in the tab. Visual-Tracker is found next to this repo, or set `--visual-tracker /path`. Starting it only works from the Mac running the C2. No drone to fly? Tick **Phone stands in for the drone** in the tab's top bar and hold up a second phone; it shows up as a drone labelled "phone stand-in" everywhere in the app.
 - `/state.json`, `/radar.json` and `/api/tracker` return the same data for scripts or other systems.
+- Live updates: the C2 fuses each report the moment it arrives (at most 10 times a second) and pushes the result to the open pages over `/events` and `/events/radar` (server-sent events). Node hints, tracker status and the event log run once a second.
 
 The demo feeds the real C2 from simulated sensors that all watch one simulated drone:
 - a fake ESP32 receiver on a virtual serial port (real packets, answers hints)

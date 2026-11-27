@@ -167,10 +167,10 @@ function side() {
     conf.map(t => `<div class="note">Drone ${t.id}: ${Math.round(t.gr)} m at ${Math.round(t.az)}°, ±${Math.round(t.sigma_m)} m · ${t.by.join(' + ')}</div>`).join('');
 }
 
-async function tick() {
-  try {
-    data = await (await fetch('radar.json', {cache: 'no-store'})).json();
-    lastOk = Date.now();
+function show(d) {
+  data = d;
+  lastOk = Date.now();
+  {
     $('site').textContent = data.site || '';
     const srcs = data.radars.map(r => r.src);
     if (!srcs.includes(pick)) pick = srcs[0] || null;
@@ -179,13 +179,27 @@ async function tick() {
       sel.innerHTML = srcs.length ? srcs.map(s => `<option>${s}</option>`).join('') : '<option>none connected</option>';
     sel.value = pick || '';
     side();
-  } catch (e) {
-    if (Date.now() - lastOk > 3000) { $('state').textContent = 'NO CONNECTION TO C2'; $('state').className = 'big bad'; }
+  }
+}
+async function poll() {  // first paint, and fallback if the stream is unavailable
+  try { show(await (await fetch('radar.json', {cache: 'no-store'})).json()); } catch (e) {}
+}
+function watchdog() {
+  if (Date.now() - lastOk > 3000) {
+    $('state').textContent = 'NO CONNECTION TO C2'; $('state').className = 'big bad';
+    if (!window.EventSource) poll();
   }
   $('clock').textContent = new Date().toLocaleTimeString();
 }
 $('pick').onchange = e => { pick = e.target.value; side(); };
-tick(); setInterval(tick, 500); requestAnimationFrame(draw);
+poll();
+if (window.EventSource) {
+  const es = new EventSource('events/radar');  // pushed on every fusion cycle
+  es.onmessage = e => show(JSON.parse(e.data));
+  es.addEventListener('ping', () => { lastOk = Date.now(); });
+} else setInterval(poll, 500);
+setInterval(watchdog, 1000);
+requestAnimationFrame(draw);
 </script>
 </body>
 </html>

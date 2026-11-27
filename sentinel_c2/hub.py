@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import threading
 import time
 
 from cuas.base import NODE_STALE_S, Base
@@ -17,6 +18,9 @@ from .hints import HintConfig, HintPolicy
 from .radar import RADAR_PORT, RadarLink
 from .ui import EventLog, summary
 from .tracker_link import TrackerLink
+
+
+FUSE_MIN_S = 0.1  # fusion runs as soon as data arrives, at most ~10 times a second
 
 
 class Hub:
@@ -34,6 +38,9 @@ class Hub:
         self.hints_enabled = hints_enabled
         self.events = EventLog()
         self.seq = 0
+        self.snap: list[dict] = []
+        self.version = 0  # bumps on every fusion cycle; the dashboard streams on change
+        self._cv = threading.Condition()
 
     def _send_hint(self, pkt) -> bool:
         return self.esp.send_packet(pkt) if self.esp else False
@@ -64,24 +71,55 @@ class Hub:
                 "hints_sent": len(self.hints.sent),
                 "radars": {k: v["up"] for k, v in (self.radar.check_health(now) if self.radar else {}).items()}}
 
-    def step(self, now: float | None = None) -> dict:
-        """One cycle: fuse, push cues, hint nodes, heartbeat everyone. Call ~1 Hz."""
+    # -- fast path: runs whenever sensor data arrives --------------------------
+    def fuse(self, now: float | None = None) -> list[dict]:
+        """Fuse new reports into tracks and cue the cameras. Called on data arrival."""
         now = time.time() if now is None else now
         snap = self.base.step(now)
         self.trackers.check_health(now)
         self.trackers.push_cues(snap, now)
+        self.snap = snap
+        with self._cv:
+            self.version += 1
+            self._cv.notify_all()
+        return snap
+
+    def wait_version(self, seen: int, timeout: float) -> int:
+        """Block until a fusion cycle newer than `seen` has run (or timeout). Returns the version."""
+        with self._cv:
+            self._cv.wait_for(lambda: self.version != seen, timeout)
+            return self.version
+
+    # -- slow path: once a second ----------------------------------------------
+    def housekeep(self, snap: list[dict], now: float | None = None) -> dict:
+        """Node hints, status heartbeat to trackers, event log."""
+        now = time.time() if now is None else now
         if self.hints_enabled:
             self.hints.step(snap, now)
         st = self.status(snap, now)
         self.trackers.push_status(st)
         self.events.observe(summary(self, now), self.hints.sent)
         self.seq += 1
-        return {"snap": snap, "status": st}
+        return st
+
+    def step(self, now: float | None = None) -> dict:
+        """One full cycle (fuse + housekeep). Used by tests and scripts."""
+        now = time.time() if now is None else now
+        snap = self.fuse(now)
+        return {"snap": snap, "status": self.housekeep(snap, now)}
 
     def run_forever(self, period_s: float = 1.0, on_step=None):
+        """Fuse as soon as any sensor reports (capped at 1/FUSE_MIN_S Hz); housekeep every period_s."""
+        last_house = float("-inf")
         while True:
+            data = self.base.wait_update(FUSE_MIN_S)
             t0 = time.time()
-            out = self.step(t0)
-            if on_step:
-                on_step(out)
-            time.sleep(max(0.0, period_s - (time.time() - t0)))
+            due = t0 - last_house >= period_s
+            if data or self.base.pending or due:
+                snap = self.fuse(t0)
+                if due:
+                    last_house = t0
+                    st = self.housekeep(snap, t0)
+                    if on_step:
+                        on_step({"snap": snap, "status": st})
+            time.sleep(max(0.0, FUSE_MIN_S - (time.time() - t0)))

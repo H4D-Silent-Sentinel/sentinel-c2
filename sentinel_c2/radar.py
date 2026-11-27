@@ -156,6 +156,7 @@ class RadarLink:
                 z, R, alt = o.fix()
                 firm = o.conf >= INIT_CONF and n_seen >= INIT_SCANS
                 self.base.tracker.update_position(z, R, o.t, source=f"radar:{o.src}", alt_m=alt, can_init=firm)
+        self.base.mark_updated()  # fuse now, not on the next timer tick
         return len(obs)
 
     def check_health(self, now: float | None = None) -> dict[str, dict]:
