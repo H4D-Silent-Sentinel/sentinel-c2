@@ -1,4 +1,4 @@
-"""USB serial link to the ESP32 base receiver (silent-sentinel firmware/base_rx).
+"""USB serial link to the ESP32 base receiver (sentinel firmware/base_rx).
 
 Uplink   ESP32 -> C2   `PKT <rssi> <snr> <hex>`   node packets heard over LoRa
 Downlink C2 -> ESP32   `TX <hex>`                  packet for base_rx to transmit (HINT)

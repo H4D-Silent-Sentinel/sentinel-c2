@@ -1,4 +1,4 @@
-"""UDP link to every Visual-Tracker (Mac or Jetson). Spec: silent-sentinel docs/jetson-interface.md v1.
+"""UDP link to every Visual-Tracker (Mac or Jetson). Spec: sentinel docs/jetson-interface.md v1.
 
   tracker --visual--> C2   udp/47010   what the camera sees; an empty `tracks` list is its heartbeat
   tracker <--cue----- C2   udp/47011   confirmed fused tracks, <= 1/s per track

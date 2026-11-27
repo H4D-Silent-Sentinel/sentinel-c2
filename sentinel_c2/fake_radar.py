@@ -6,7 +6,7 @@
 Runs in real time: reports carry the wall clock, as a real radar's would, so the C2's tracker
 sees true drone speeds. (Speeding the sim up would make the drone look 8x faster to the C2.)
 
-The drone flies silent-sentinel's simulated path (cuas.sim.scenario.DEFAULT_PATH, or --path).
+The drone flies sentinel's simulated path (cuas.sim.scenario.DEFAULT_PATH, or --path).
 What it models, roughly, so the C2 sees realistic gaps and junk:
   - detection probability from a radar-equation SNR: falls off as 1/R^4, small drone RCS
   - measurement noise in range, azimuth, elevation; radial (Doppler) velocity
@@ -134,13 +134,13 @@ def main(argv=None):
     from cuas.sim.scenario import DEFAULT_PATH, DroneSim
 
     ap = argparse.ArgumentParser(prog="sentinel_c2.fake_radar", description=__doc__.splitlines()[0])
-    ap.add_argument("--site", required=True, help="silent-sentinel site file (for the local frame)")
+    ap.add_argument("--site", required=True, help="sentinel site file (for the local frame)")
     ap.add_argument("--c2", default="127.0.0.1", help="C2 address")
     ap.add_argument("--port", type=int, default=RADAR_PORT)
     ap.add_argument("--src", default="radar-1")
     ap.add_argument("--at", default="0,-120", help="radar position e,n in metres from the site origin")
     ap.add_argument("--alt", type=float, default=10.0, help="radar height, m")
-    ap.add_argument("--path", help="drone waypoints e,n;e,n;... (default: silent-sentinel's DEFAULT_PATH)")
+    ap.add_argument("--path", help="drone waypoints e,n;e,n;... (default: sentinel's DEFAULT_PATH)")
     ap.add_argument("--drone-speed", type=float, default=8.0)
     ap.add_argument("--drone-alt", type=float, default=40.0)
     ap.add_argument("--scan", type=float, default=0.5, help="seconds per scan")

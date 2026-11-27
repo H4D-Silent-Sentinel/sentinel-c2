@@ -3,7 +3,7 @@
 When a confirmed track is still being updated by a Visual-Tracker or a radar, and a node that
 heard that drone (or sits close to where it is now) has dropped it, the C2 sends that
 node a HINT over LoRa: "look for a rotor comb at f0 for the next hold_s seconds".
-The node's detector then re-confirms on fewer hits near that f0 (see silent-sentinel
+The node's detector then re-confirms on fewer hits near that f0 (see sentinel
 cuas/detector.py set_hint). Hints repeat every resend_s while the condition holds and
 expire on the node by themselves, so a lost downlink packet is harmless.
 """

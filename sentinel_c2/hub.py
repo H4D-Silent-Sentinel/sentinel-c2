@@ -1,8 +1,8 @@
 """The C2 hub: collects from the ESP32 node network and the Visual-Trackers, fuses
-(using silent-sentinel's Base), and keeps both sides updated continuously.
+(using sentinel's Base), and keeps both sides updated continuously.
 
   ESP32 nodes ──LoRa──▶ base_rx ESP32 ──USB──▶ ┌──────────────┐ ──cue/status──▶ Visual-Tracker(s)
-              ◀──LoRa── (HINT downlink) ◀──USB─ │  sentinel-c2 │ ◀──visual──────
+              ◀──LoRa── (HINT downlink) ◀──USB─ │    ROAREE    │ ◀──visual──────
   radar (real or fake_radar) ──udp/47012──────▶ └──────────────┘ ──▶ map / TAK
 """
 from __future__ import annotations

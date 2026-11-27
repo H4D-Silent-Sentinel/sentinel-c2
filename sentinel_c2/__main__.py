@@ -1,4 +1,4 @@
-"""sentinel-c2: collection point between the ESP32 acoustic nodes and the Visual-Trackers.
+"""ROAREE (Silent Sentinel C2): collection point between the ESP32 acoustic nodes and the Visual-Trackers.
 
   python -m sentinel_c2 --site sites/x.json --serial /dev/cu.usbserial-XXXX [--tracker 192.168.1.30] [--map] [--cot]
   python -m sentinel_c2 ports           # list serial ports (find the base receiver ESP32)
@@ -30,7 +30,7 @@ def cmd_run(a):
               tracker=TrackerControl(a.visual_tracker or _find_visual_tracker(), url=a.tracker_url))
         if a.open:
             open_window(f"http://127.0.0.1:{a.ui_port}")
-    print(f"sentinel-c2 up: {len(site.nodes)} nodes, ESP32 {'on ' + a.serial if a.serial else 'off'}, "
+    print(f"ROAREE up: {len(site.nodes)} nodes, ESP32 {'on ' + a.serial if a.serial else 'off'}, "
           f"trackers {a.tracker or 'auto'}. Ctrl-C to stop.", flush=True)
 
     def show(out):
@@ -76,7 +76,7 @@ def main(argv=None):
         return cmd_ports(None)
     ap = argparse.ArgumentParser(prog="sentinel_c2", description=__doc__.splitlines()[0],
                                  epilog="`python -m sentinel_c2 ports` lists serial ports.")
-    ap.add_argument("--site", required=True, help="silent-sentinel site file (node + camera positions)")
+    ap.add_argument("--site", required=True, help="sentinel site file (node + camera positions)")
     ap.add_argument("--serial", help="base receiver ESP32 port; omit to run trackers-only")
     ap.add_argument("--tracker", action="append", help="Visual-Tracker IP (repeatable; also auto-learned)")
     ap.add_argument("--visual-port", type=int, default=47010)
@@ -93,7 +93,7 @@ def main(argv=None):
     ap.add_argument("--visual-tracker", help="Visual-Tracker folder, for the Camera tab's Start button "
                                              "(default: ../Visual-Tracker next to this repo)")
     ap.add_argument("--tracker-url", default="http://127.0.0.1:8001", help="Visual-Tracker dashboard address")
-    ap.add_argument("--map", action="store_true", help="serve silent-sentinel's live map")
+    ap.add_argument("--map", action="store_true", help="serve sentinel's live map")
     ap.add_argument("--map-port", type=int, default=8080)
     ap.add_argument("--cot", nargs="?", const="udp://239.2.3.1:6969", help="send CoT to TAK")
     cmd_run(ap.parse_args(argv))

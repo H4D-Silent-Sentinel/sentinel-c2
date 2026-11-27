@@ -1,14 +1,14 @@
-# sentinel-c2
+# ROAREE
 
-The collection point for Silent Sentinel. It reads the ESP32 acoustic node network, takes camera reports from every Visual-Tracker, fuses them, and keeps both sides updated continuously.
+Remote Observation, Autonomous Recognition, and Event Evaluation: the C2 (command and control) software for Silent Sentinel. It reads the ESP32 acoustic node network, takes camera reports from every Visual-Tracker, fuses them, and keeps both sides updated continuously.
 
 ```
  ESP32 listening nodes ──LoRa──▶ base_rx ESP32 ──USB serial──▶ ┌─────────────┐ ──cue + status──▶ Visual-Tracker(s)
-                       ◀─LoRa── (HINT downlink)  ◀─USB serial── │ sentinel-c2 │ ◀────visual──────  (Mac / Jetson)
+                       ◀─LoRa── (HINT downlink)  ◀─USB serial── │   ROAREE    │ ◀────visual──────  (Mac / Jetson)
  radar (simulated for now) ───────────udp/47012───────────────▶ └─────────────┘ ──▶ live map, TAK
 ```
 
-The fusion itself (packet ingest, loudness localization, Kalman tracker, map, TAK) is [silent-sentinel](https://github.com/H4D-Silent-Sentinel/silent-sentinel)'s `cuas` package, used as a library. This repo adds the links and the two-way traffic:
+The fusion itself (packet ingest, loudness localization, Kalman tracker, map, TAK) is [sentinel](https://github.com/H4D-Silent-Sentinel/sentinel)'s `cuas` package, used as a library. This repo adds the links and the two-way traffic:
 
 | Link | Direction | What | Rate |
 |---|---|---|---|
@@ -43,7 +43,7 @@ Nothing is transmitted.
 ## Run
 
 ```sh
-pip install -e .                       # pulls silent-sentinel from GitHub
+pip install -e .                       # pulls sentinel from GitHub
 python -m sentinel_c2 ports            # find the base receiver ESP32
 python -m sentinel_c2 --site path/to/site.json --serial /dev/cu.usbserial-XXXX --map
 ```
@@ -52,7 +52,7 @@ python -m sentinel_c2 --site path/to/site.json --serial /dev/cu.usbserial-XXXX -
 - No `--serial` runs trackers-only (camera tests without the node network).
 - `--no-hints` turns the node downlink off. `--cot` sends tracks to TAK.
 
-The site file is silent-sentinel's (`sites/*.json`): node positions, plus any fixed camera posts by `src` id.
+The site file is sentinel's (`sites/*.json`): node positions, plus any fixed camera posts by `src` id.
 
 Each second the console prints the ESP32 link state, nodes online, each tracker (up or DOWN), and confirmed tracks.
 
@@ -67,7 +67,7 @@ python -m sentinel_c2.fake_radar --site path/to/site.json \
     --at 0,-120 --shadow 270:340:120 --loop                         # terminal 2
 ```
 
-The fake radar flies silent-sentinel's simulated drone path and models:
+The fake radar flies sentinel's simulated drone path and models:
 - detection that falls off with range (radar equation, small-drone RCS)
 - measurement noise and Doppler
 - false plots from birds and clutter
@@ -85,7 +85,7 @@ A radar plot only reaches the tracker once the radar has reported the same track
 
 The nodes lose a drone when it goes quiet or behind a building. If a Visual-Tracker or radar is still updating that track (within the last 3 s), the C2 sends a HINT over LoRa to each node that (a) reported that drone's rotor frequency in the last 2 min, or (b) is within 300 m of where the track is now, and isn't hearing it.
 
-The hint says "look for a rotor comb at f0 for the next 10 s". The node's detector then re-confirms on 3 hits near that f0 instead of 6 of 8. Hints repeat every 4 s while the node stays lost, and they expire on the node by themselves, so a dropped radio packet costs nothing. A hint at the wrong frequency changes nothing, and noise or wind with a hint active still raises no alarm (tests in silent-sentinel `tests/test_detector.py`).
+The hint says "look for a rotor comb at f0 for the next 10 s". The node's detector then re-confirms on 3 hits near that f0 instead of 6 of 8. Hints repeat every 4 s while the node stays lost, and they expire on the node by themselves, so a dropped radio packet costs nothing. A hint at the wrong frequency changes nothing, and noise or wind with a hint active still raises no alarm (tests in sentinel `tests/test_detector.py`).
 
 Packet: the normal 24-byte layout, type 4, `node_id` = target (0xFF = all), `f0` = frequency, `uptime_ms` = hold time. See `cuas/packet.py: make_hint`.
 

@@ -1,15 +1,16 @@
 [project]
-name = "sentinel-c2"
+name = "roaree"
 version = "0.1.0"
-description = "Silent Sentinel C2: collection point between the ESP32 acoustic nodes and the Visual-Trackers"
+description = "ROAREE (Remote Observation, Autonomous Recognition, and Event Evaluation): Silent Sentinel C2"
 requires-python = ">=3.10"
-dependencies = ["silent-sentinel @ git+https://github.com/H4D-Silent-Sentinel/silent-sentinel.git"]
+dependencies = ["sentinel @ git+https://github.com/H4D-Silent-Sentinel/sentinel.git"]
 
 [project.optional-dependencies]
 dev = ["pytest"]
 
 [project.scripts]
-sentinel-c2 = "sentinel_c2.__main__:main"
+roaree = "sentinel_c2.__main__:main"
+sentinel-c2 = "sentinel_c2.__main__:main"  # old command name, kept
 
 [build-system]
 requires = ["setuptools>=64"]

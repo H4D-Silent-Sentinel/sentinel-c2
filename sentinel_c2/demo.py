@@ -9,7 +9,7 @@ simulated sensors that all watch the same simulated drone.
   - radar-1         -> the fake radar over UDP (with a building shadow)
   - chaser-1        -> a moving camera (like the phone in chaser mode): circles the site, reports its
                        own GPS position and heading every second, and points at the drone
-The node and camera models are silent-sentinel's network simulator (cuas.sim.scenario).
+The node and camera models are sentinel's network simulator (cuas.sim.scenario).
 Everything is software; nothing is transmitted over the air.
 """
 from __future__ import annotations
@@ -29,7 +29,7 @@ import numpy as np
 
 def _default_site() -> str | None:
     here = Path(__file__).resolve().parents[2]
-    for p in (here / "silent-sentinel", here / "ss"):
+    for p in (here / "sentinel", here / "silent-sentinel", here / "ss"):
         f = p / "sites" / "example_intersection.json"
         if f.exists():
             return str(f)
@@ -145,7 +145,7 @@ def main(argv=None):
     from .ui import serve
 
     ap = argparse.ArgumentParser(prog="sentinel_c2.demo", description=__doc__.splitlines()[0])
-    ap.add_argument("--site", default=_default_site(), help="silent-sentinel site file")
+    ap.add_argument("--site", default=_default_site(), help="sentinel site file")
     ap.add_argument("--ui-port", type=int, default=8090)
     ap.add_argument("--no-open", action="store_true", help="don't open a window")
     ap.add_argument("--shadow", action="append", default=None, metavar="AZ_FROM:AZ_TO:BEYOND_M",
@@ -154,7 +154,7 @@ def main(argv=None):
     ap.add_argument("--once", action="store_true", help="fly the path once instead of looping")
     a = ap.parse_args(argv)
     if not a.site:
-        ap.error("--site is required (couldn't find ../silent-sentinel/sites/example_intersection.json)")
+        ap.error("--site is required (couldn't find ../sentinel/sites/example_intersection.json)")
 
     site = Site.load(a.site)
     rx = FakeReceiver()
