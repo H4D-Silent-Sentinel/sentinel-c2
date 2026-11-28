@@ -6,8 +6,9 @@ ROAREE ingests reports from the acoustic node network, Visual-Tracker cameras, r
 
 ```
  ESP32 listening nodes ──LoRa──▶ base_rx ESP32 ──USB serial──▶ ┌─────────────┐ ──cue + status──▶ Visual-Tracker(s)
-                       ◀─LoRa── (HINT downlink)  ◀─USB serial── │   ROAREE    │ ◀────visual──────  (Mac / Jetson)
- radar ───────────────────────────────udp/47012───────────────▶ │             │ ──▶ dashboard, map, TAK
+ radar station ─────────LoRa──▶                                  │   ROAREE    │ ◀────visual──────  (Mac / Jetson)
+                       ◀─LoRa── (HINT downlink)  ◀─USB serial── │             │ ──▶ dashboard, map, TAK
+ other radars ────────────────────────udp/47012───────────────▶ │             │
  tango hand controller ───────────────udp/47013───────────────▶ └─────────────┘
 ```
 
@@ -84,6 +85,7 @@ The dashboard reports the distance from the closest live track to the nearest li
 | Link | Direction | Message | Rate |
 |---|---|---|---|
 | ESP32 serial | node → C2 | `PKT <rssi> <snr> <hex>`: detections, LOST, heartbeats | as reported |
+| ESP32 serial | radar station → C2 | `PKT <rssi> <snr> <hex>`: RadarPacket, up to 3 targets | 5 Hz with targets, 1 Hz idle |
 | ESP32 serial | C2 → node | `TX <hex>`: HINT packet, transmitted by base_rx over LoRa | per node every 4 s while needed |
 | UDP 47010 | tracker → C2 | `visual`; an empty `tracks` list is the heartbeat | 5 Hz with tracks, 1 Hz idle |
 | UDP 47011 | C2 → tracker | `cue` per confirmed track | ≤ 1 Hz per track |
@@ -104,6 +106,10 @@ The dashboard reports the distance from the closest live track to the nearest li
 ## Radar
 
 Message format and ingest: `sentinel_c2/radar.py`. A radar connects by sending `radar` messages to UDP 47012, directly or through an adapter.
+
+### Radar station (LoRa)
+
+The sentinel radar station (`firmware/radar_node`: RD-03D, ESP32-S3, RFM95W) reports through the base receiver. `sentinel_c2/radar_lora.py` looks up the station by `radar_id` in the site file's `radars` list (position, `yaw_deg`, `flip_x`, `max_range_m`), assigns persistent target IDs by nearest neighbour (2.5 m gate), and passes each packet to the radar input as `radar-<id>`. Packets from a station not in the site file are logged once and ignored.
 
 - Track initiation requires the same radar track ID on 3 consecutive reports with confidence ≥ 0.6.
 - Track updates require the same radar track ID on 2 consecutive reports. Single plots (birds, clutter) are displayed on the scope and not fused.

@@ -1,6 +1,6 @@
 """USB serial link to the ESP32 base receiver (sentinel firmware/base_rx).
 
-Uplink   ESP32 -> C2   `PKT <rssi> <snr> <hex>`   node packets heard over LoRa
+Uplink   ESP32 -> C2   `PKT <rssi> <snr> <hex>`   node and radar station packets heard over LoRa
 Downlink C2 -> ESP32   `TX <hex>`                  packet for base_rx to transmit (HINT)
                        base_rx answers `TXOK <n>` or `TXERR <reason>`
 
@@ -13,7 +13,7 @@ import threading
 import time
 
 from cuas.io import parse_rx_line
-from cuas.packet import Packet, PktType
+from cuas.packet import Packet, PktType, RadarPacket
 
 
 class Esp32Link:
@@ -24,6 +24,7 @@ class Esp32Link:
         self.rx_packets = self.tx_ok = self.tx_err = self.bad_lines = 0
         self._ser = None
         self.gate = None  # optional: pkt -> bool; False drops the report (operator mute)
+        self.on_radar = None  # optional: (RadarPacket, rx time) -> None, radar station packets
         self._wlock = threading.Lock()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True, name="esp32")
@@ -118,6 +119,11 @@ class Esp32Link:
         if pkt is None:
             if not line.startswith(("TX type=", "DBG", "HINT")):  # node console chatter
                 self.log(f"esp32: {line}")
+            return
+        if isinstance(pkt, RadarPacket):
+            self.rx_packets += 1
+            if self.on_radar:
+                self.on_radar(pkt, self.last_rx)
             return
         if pkt.type == PktType.HINT:  # our own downlink echoed by a USB node; not a report
             return

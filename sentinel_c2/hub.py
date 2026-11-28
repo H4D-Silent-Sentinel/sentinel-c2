@@ -17,6 +17,7 @@ from .esp32 import Esp32Link
 from .hints import HintConfig, HintPolicy
 from .operator import OPERATOR_PORT, Operator
 from .radar import RADAR_PORT, RadarLink
+from .radar_lora import LoRaRadar
 from .ui import EventLog, summary
 from .tracker_link import TrackerLink
 
@@ -44,6 +45,8 @@ class Hub:
         self.trackers.gate = lambda: self.operator.accepts("camera")
         if self.radar:
             self.radar.gate = lambda: self.operator.accepts("radar")
+            if self.esp:
+                self.esp.on_radar = LoRaRadar(self.radar, self.base.site, log=log).on_packet
         self.seq = 0
         self.snap: list[dict] = []
         self.version = 0  # bumps on every fusion cycle; the dashboard streams on change
