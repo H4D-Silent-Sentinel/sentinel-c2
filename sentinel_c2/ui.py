@@ -32,6 +32,8 @@ from cuas.base import NODE_STALE_S
 
 FRESH_S = 5.0  # a sensor counts as "seeing it now" if it updated the track this recently
 COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+# Proximity alert bands: distance from the closest live track to the nearest listening node (m).
+ALERT_CLOSE_M, ALERT_NEAR_M, ALERT_FAR_M = 15.0, 40.0, 100.0
 
 
 def _ago(s: float | None) -> str:
@@ -156,6 +158,18 @@ def summary(hub, now: float | None = None) -> dict:
                            f0=tr["f0"], selected=op is not None and op.track == tr["id"], history=[(round(e, 1), round(n, 1)) for e, n in tr["history"]]))
     tracks.sort(key=lambda t: (not (t["confirmed"] and t["fresh"]), not t["confirmed"], t["id"]))
 
+    # -- proximity: closest live track to any listening node --------------------------------
+    proximity = None
+    for t in tracks:
+        if not t["fresh"]:
+            continue
+        for nid, node in site.nodes.items():
+            d = math.hypot(t["e"] - node.e, t["n"] - node.n)
+            if proximity is None or d < proximity["dist_m"]:
+                proximity = dict(dist_m=round(d, 1), node=nid, track=t["id"], confirmed=t["confirmed"],
+                                 level=("inside" if d <= ALERT_CLOSE_M else "close" if d <= ALERT_NEAR_M
+                                        else "approach" if d <= ALERT_FAR_M else "clear"))
+
     # -- verdict ------------------------------------------------------------------------
     confirmed = [t for t in tracks if t["confirmed"] and t["fresh"]]
     lost = [t for t in tracks if t["confirmed"] and not t["fresh"]]
@@ -175,7 +189,8 @@ def summary(hub, now: float | None = None) -> dict:
     health = ("All sensors connected." if not problems else
               f"{len(problems)} sensor{'s' if len(problems) > 1 else ''} not reporting: "
               + ", ".join(s["name"] for s in problems) + ".")
-    return dict(t=now, site=site.name, verdict=verdict, health=health, health_ok=not problems,
+    return dict(t=now, site=site.name, verdict=verdict, health=health, health_ok=not problems, proximity=proximity,
+                alert_m=[ALERT_CLOSE_M, ALERT_NEAR_M, ALERT_FAR_M],
                 sensors=sensors, tracks=tracks, events=list(hub.events.items) if hasattr(hub, "events") else [],
                 hints_sent=len(hub.hints.sent))
 

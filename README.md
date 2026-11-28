@@ -75,6 +75,10 @@ Runs ROAREE against simulated sensors observing one simulated UAS: an ESP32 rece
 
 Fusion runs on report arrival, at most 10 Hz. HINTs, tracker status and the event log run at 1 Hz.
 
+### Proximity alert
+
+The dashboard reports the distance from the closest live track to the nearest listening node: APPROACHING within 100 m, CLOSE within 40 m. **Audio alert** in the header enables an audible alert (browsers require a click before playing sound): 1.4 kHz beeps within 100 m, 2.6 kHz within 40 m, with the interval falling from ~1 s at 100 m to ~70 ms at the node. Bands: `ALERT_CLOSE_M`, `ALERT_NEAR_M`, `ALERT_FAR_M` in `sentinel_c2/ui.py`.
+
 ## Interfaces
 
 | Link | Direction | Message | Rate |

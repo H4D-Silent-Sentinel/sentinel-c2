@@ -20,6 +20,11 @@
   nav a { color: var(--muted); text-decoration: none; padding: 3px 10px; border-radius: 6px; border: 1px solid transparent; }
   nav a:hover { color: var(--fg); border-color: var(--line); }
   nav a[aria-current] { color: var(--fg); background: var(--panel2); border-color: var(--line); }
+  #audio { margin-left: auto; font: inherit; font-size: 13px; color: var(--fg); background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+  #audio[aria-pressed="true"] { border-color: var(--alert); color: var(--alert); }
+  #prox { padding: 6px 20px; font-weight: 700; display: none; }
+  #prox.approach, #prox.close, #prox.inside { display: block; }
+  #prox.approach { color: var(--down); } #prox.close, #prox.inside { color: var(--alert); }
   header .clock { margin-left: 12px; font-family: ui-monospace, Menlo, monospace; color: var(--muted); }
   #banner { margin: 14px 20px 0; border-radius: 10px; padding: 14px 18px; display: grid;
     grid-template-columns: auto 1fr; gap: 2px 16px; align-items: center; border: 1px solid var(--line); background: var(--panel); }
@@ -80,6 +85,7 @@
   <h1>ROAREE · C2</h1>
   <span class="site" id="site">connecting…</span>
   <nav><a href="/" aria-current="page">All sensors</a><a href="/radar">Radar scope</a><a href="/camera">Camera</a></nav>
+  <button id="audio" type="button" aria-pressed="false" title="Audible proximity alert">Audio alert: off</button>
   <span class="clock" id="clock"></span>
 </header>
 
@@ -89,6 +95,7 @@
   <div class="text" id="verdictText">Waiting for the C2.</div>
 </div>
 <div id="health" role="status"></div>
+<div id="prox" role="alert"></div>
 
 <main>
   <section aria-label="Sensors">
@@ -229,6 +236,45 @@ function render(s) {
   renderTracks(s.tracks);
   renderEvents(s.events);
   renderPlan(s);
+  proximity(s);
+}
+
+// Proximity alert: beeps faster and higher as the closest live track nears a listening node.
+// Browsers only allow sound after a click, so the operator turns it on with the header button.
+let actx = null, beepTimer = null, prox = null;
+const AUDIO_KEY = 'roaree-audio';
+function setAudio(on) {
+  if (on && !actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+  if (actx) on ? actx.resume() : actx.suspend();
+  $('audio').setAttribute('aria-pressed', on);
+  $('audio').textContent = 'Audio alert: ' + (on ? 'on' : 'off');
+  localStorage.setItem(AUDIO_KEY, on ? '1' : '0');
+}
+$('audio').onclick = () => setAudio($('audio').getAttribute('aria-pressed') !== 'true');
+if (localStorage.getItem(AUDIO_KEY) === '1') $('audio').textContent = 'Audio alert: click to resume';
+function beep(freq, dur) {
+  if (!actx || actx.state !== 'running') return;
+  const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;
+  o.type = 'square'; o.frequency.value = freq;
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.15, t + 0.005);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(actx.destination); o.start(t); o.stop(t + dur + 0.02);
+}
+function beepLoop() {
+  beepTimer = null;
+  if (!prox || prox.level === 'clear') return;
+  const [close, near, far] = prox.bands;
+  const k = Math.max(0, Math.min(1, prox.dist_m / far));            // 0 at the node, 1 at the outer band
+  beep(prox.level === 'approach' ? 1400 : 2600, prox.level === 'approach' ? 0.08 : 0.05);
+  beepTimer = setTimeout(beepLoop, 1000 * (0.07 + 0.9 * k));       // ~14 beeps/s at the node, ~1/s at 100 m
+}
+function proximity(s) {
+  const p = s.proximity;
+  prox = p && p.level !== 'clear' ? { ...p, bands: s.alert_m } : null;
+  const el = $('prox');
+  el.className = prox ? prox.level : '';
+  el.textContent = prox ? `${prox.level === 'approach' ? 'APPROACHING' : 'CLOSE'}: drone ${prox.track} ${prox.dist_m.toFixed(0)} m from Node ${prox.node}` : '';
+  if (prox && !beepTimer) beepLoop();
 }
 
 // Live: the C2 pushes new state on every fusion cycle (server-sent events).

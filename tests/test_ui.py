@@ -194,3 +194,14 @@ def test_two_cameras_on_one_machine_are_two_sensors():
     assert cams == {"Camera post-1": "ok", "Camera chaser-1": "ok"}, cams
     assert hub.trackers.destinations() == {"10.0.0.9"}  # cues still go to that machine once
     hub.close()
+
+
+def test_proximity_reports_closest_live_track_to_a_node():
+    hub = make_hub()
+    assert summary(hub, 1000.0)["proximity"] is None
+    feed(hub, 0, 8)
+    s = summary(hub, 8.0)
+    p = s["proximity"]
+    assert p is not None and p["node"] in hub.base.site.nodes and p["dist_m"] >= 0
+    assert p["level"] in ("inside", "close", "approach", "clear")
+    assert s["alert_m"] == sorted(s["alert_m"])
