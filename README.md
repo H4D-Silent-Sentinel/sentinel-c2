@@ -1,114 +1,93 @@
 # ROAREE
 
-Remote Observation, Autonomous Recognition, and Event Evaluation: the C2 (command and control) software for Silent Sentinel. It reads the ESP32 acoustic node network, takes camera reports from every Visual-Tracker, fuses them, and keeps both sides updated continuously.
+Remote Observation, Autonomous Recognition, and Event Evaluation. Command and control (C2) software for Silent Sentinel.
+
+ROAREE ingests reports from the acoustic node network, Visual-Tracker cameras, radar and the tango hand controller, fuses them into tracks, and returns cues and status to the sensors. Fusion (packet ingest, acoustic localization, Kalman tracker, map, CoT output) is provided by the `cuas` package from [sentinel](https://github.com/H4D-Silent-Sentinel/sentinel).
 
 ```
  ESP32 listening nodes ──LoRa──▶ base_rx ESP32 ──USB serial──▶ ┌─────────────┐ ──cue + status──▶ Visual-Tracker(s)
                        ◀─LoRa── (HINT downlink)  ◀─USB serial── │   ROAREE    │ ◀────visual──────  (Mac / Jetson)
- radar (simulated for now) ───────────udp/47012───────────────▶ └─────────────┘ ──▶ live map, TAK
+ radar ───────────────────────────────udp/47012───────────────▶ │             │ ──▶ dashboard, map, TAK
+ tango hand controller ───────────────udp/47013───────────────▶ └─────────────┘
 ```
-
-The fusion itself (packet ingest, loudness localization, Kalman tracker, map, TAK) is [sentinel](https://github.com/H4D-Silent-Sentinel/sentinel)'s `cuas` package, used as a library. This repo adds the links and the two-way traffic:
-
-| Link | Direction | What | Rate |
-|---|---|---|---|
-| ESP32 serial | node → C2 | `PKT <rssi> <snr> <hex>` node detections, LOST, heartbeats | as nodes report |
-| ESP32 serial | C2 → node | `TX <hex>` HINT packet, base_rx transmits over LoRa | per node every 4 s while needed |
-| UDP 47010 | tracker → C2 | `visual` (an empty `tracks` list is the tracker's heartbeat) | 5 Hz with tracks, 1 Hz idle |
-| UDP 47011 | C2 → tracker | `cue` for each confirmed track | ≤ 1 Hz per track |
-| UDP 47011 | C2 → tracker | `status` heartbeat with link and node health | 1 Hz, always |
-| UDP 47012 | radar → C2 | `radar` plots: range, azimuth, elevation, radial velocity (an empty list is its heartbeat) | each scan |
-| UDP 47013 | hand controller → C2 | `control` on each switch or stick change; `controls` heartbeat with switch positions ([tango](https://github.com/H4D-Silent-Sentinel/tango)) | on change, plus 1 Hz |
 
 ## Requirements
 
-- Python 3.10 or newer. Check with `python3 --version`. All dependencies have prebuilt packages for 3.10–3.14 on macOS, Windows and Linux. The `python3` that comes with macOS (Xcode command-line tools) is 3.9 and will not work; install a current Python from python.org or Homebrew.
-- git: `pip install` fetches [sentinel](https://github.com/H4D-Silent-Sentinel/sentinel) from GitHub.
+- Python 3.10 or newer (`python3 --version`). Dependencies have prebuilt packages for 3.10–3.14 on macOS, Windows and Linux. The `python3` bundled with the macOS command-line tools is 3.9 and is not supported.
+- git. The install fetches `sentinel` from GitHub.
 
-## Operator app (no hardware needed to try it)
-
-```sh
-python -m sentinel_c2.demo          # whole system simulated; opens the app window
-```
-
-A real run with the dashboard: add `--ui --open` to the normal command. It opens in its own window (Chrome/Edge app mode); otherwise go to http://127.0.0.1:8090. Use `--ui-host 0.0.0.0` to view it from other machines on the network.
-
-- **All sensors** (`/`): a banner (ALL CLEAR / POSSIBLE DRONE / DRONE TRACKED / DRONE LOST), every sensor's link to the C2 in plain words (green connected, orange detecting, red not reporting, grey not in use), an offline site plan, the drones, and a plain-English event log.
-- **Radar scope** (`/radar`): a classic radar display with the sweep, range rings, contacts fading over 12 s, building shadows hatched, and the C2's fused drones on top.
-- **Camera** (`/camera`): a **Start camera tracker** button. It runs Visual-Tracker's own `Start Tracker.command`, so macOS camera permission works and its logs stay visible in a Terminal window. Once Visual-Tracker answers, the C2 switches on its link to the C2 with the v4 model and shows its Live view in the tab. Visual-Tracker is found next to this repo, or set `--visual-tracker /path`. Starting it only works from the Mac running the C2. No drone to fly? Tick **Phone stands in for the drone** in the tab's top bar and hold up a second phone; it shows up as a drone labelled "phone stand-in" everywhere in the app.
-- `/state.json`, `/radar.json` and `/api/tracker` return the same data for scripts or other systems.
-- Live updates: the C2 fuses each report the moment it arrives (at most 10 times a second) and pushes the result to the open pages over `/events` and `/events/radar` (server-sent events). Node hints, tracker status and the event log run once a second.
-
-The demo feeds the real C2 from simulated sensors that all watch one simulated drone:
-- a fake ESP32 receiver on a virtual serial port (real packets, answers hints)
-- camera post-1
-- the fake radar
-
-Nothing is transmitted.
-
-## Run
+## Installation
 
 ```sh
-pip install -e .                       # pulls sentinel from GitHub
-python -m sentinel_c2 ports            # find the base receiver ESP32
-python -m sentinel_c2 --site path/to/site.json --serial /dev/cu.usbserial-XXXX --map
+pip install git+https://github.com/H4D-Silent-Sentinel/roaree.git
 ```
 
-- `--tracker <ip>` (repeatable) sends to a tracker before it has spoken. Without it, the C2 learns trackers from their reports and broadcasts its status until one is heard, so a tracker started without `--base` finds the C2 by itself. Campus Wi-Fi often blocks broadcast; use `--tracker` there.
-- No `--serial` runs trackers-only (camera tests without the node network).
-- `--no-hints` turns the node downlink off. `--cot` sends tracks to TAK.
-
-The site file is sentinel's (`sites/*.json`): node positions, plus any fixed camera posts by `src` id.
-
-Each second the console prints the ESP32 link state, nodes online, each tracker (up or DOWN), and confirmed tracks.
-
-## Radar (simulated)
-
-There is no real radar yet. **(Radar order complete as of 11/24)**
-A real one transmits RF and needs spectrum authorization, so the C2 is tested against a software stand-in that only sends UDP packets:
+For development:
 
 ```sh
-python -m sentinel_c2 --site path/to/site.json                    # terminal 1
-python -m sentinel_c2.fake_radar --site path/to/site.json \
-    --at 0,-120 --shadow 270:340:120 --loop                         # terminal 2
+git clone https://github.com/H4D-Silent-Sentinel/roaree.git && cd roaree
+pip install -e ".[dev]"
 ```
 
-The fake radar flies sentinel's simulated drone path and models:
-- detection that falls off with range (radar equation, small-drone RCS)
-- measurement noise and Doppler
-- false plots from birds and clutter
-- building shadows: `--shadow AZ_FROM:AZ_TO:BEYOND_M` hides the drone in that sector past that range
+## Usage
 
-It runs in real time on purpose: reports carry the wall clock, so the C2's tracker sees true drone speeds.
+```sh
+roaree ports                                                        # list serial ports
+roaree --site path/to/site.json --serial /dev/cu.usbserial-XXXX --ui --open
+```
 
-Message format and C2 ingest are in `sentinel_c2/radar.py`. A real radar plugs in by sending the same `radar` message to udp/47012, or through a small adapter from its vendor's output. The C2 only starts a track from a radar plot after the radar has held that track ID for 3 reports in a row. Across 20 random runs, heavy clutter (3 false plots per scan) never produced a confirmed track, and the drone was tracked ≥ 97% of the time with ~2–3 m median error.
+`python -m sentinel_c2` is equivalent to `roaree`.
 
-Radar counts like a camera for node hints: if the radar still has a drone the nodes lost, they get re-cued.
-
-A radar plot only reaches the tracker once the radar has reported the same track ID twice in a row. One-off plots (birds, clutter) are shown on the scope but never fused. A coasting track has a wide gate, and one-off plots used to keep a stale track alive, so one drone showed as two. Across replayed demo flights, that went from 20–34 s of a phantom second drone in half the runs to none (`tests/test_radar.py`).
-
-## Hand controller (tango)
-
-A TBS Tango 2 in USB joystick mode, read by [tango](https://github.com/H4D-Silent-Sentinel/tango) on the same laptop. ROAREE applies its controls in `sentinel_c2/operator.py`:
-
-| Control | Effect in ROAREE |
+| Option | Description |
 |---|---|
-| `mute_acoustic`, `mute_radar`, `mute_camera` | that sensor group's reports are not fused while the switch is on; the dashboard marks them "Muted by operator" |
-| `node_select` + `node_toggle` | pick a listening node; toggle ignores or restores its reports |
-| `tak_out` | CoT output to TAK on or off (with `--cot`) |
-| `track_select` | focus a track on the dashboard |
+| `--site FILE` | Site file from sentinel (`sites/*.json`): node positions and fixed camera posts by `src` id. Required. |
+| `--serial PORT` | Base receiver ESP32. Omit to run without the node network. |
+| `--tracker IP` | Visual-Tracker address, repeatable. Without it, trackers are learned from their reports and status is broadcast until one is heard. Required on networks that block broadcast. |
+| `--no-broadcast` | Do not broadcast status before a tracker is heard. |
+| `--no-hints` | Disable the HINT downlink to the nodes. |
+| `--radar-port`, `--no-radar` | Radar listener port (default 47012), or disable it. |
+| `--operator-port`, `--no-operator` | Hand controller listener port (default 47013), or disable it. |
+| `--ui`, `--ui-port`, `--ui-host` | Serve the dashboard (default 127.0.0.1:8090). `--ui-host 0.0.0.0` exposes it on the network. |
+| `--open` | With `--ui`, open the dashboard in its own window (Chrome or Edge app mode). |
+| `--map`, `--map-port` | Serve the sentinel map (default port 8080). |
+| `--cot [URL]` | Send CoT to TAK (default `udp://239.2.3.1:6969`). |
+| `--visual-tracker DIR`, `--tracker-url URL` | Visual-Tracker checkout and dashboard address for the Camera page. |
 
-The dashboard lists the controller under "Hand controller": connected, lost (no heartbeat for 2.5 s or unplugged), and current mutes. Every change goes to the event list. `--no-operator` turns the listener off.
+The console prints link state, nodes online, tracker and radar status, and confirmed tracks once per second.
 
-## Keeping the nodes on target (HINT downlink)
+### Simulation
 
-The nodes lose a drone when it goes quiet or behind a building. If a Visual-Tracker or radar is still updating that track (within the last 3 s), the C2 sends a HINT over LoRa to each node that (a) reported that drone's rotor frequency in the last 2 min, or (b) is within 300 m of where the track is now, and isn't hearing it.
+```sh
+python -m sentinel_c2.demo
+```
 
-The hint says "look for a rotor comb at f0 for the next 10 s". The node's detector then re-confirms on 3 hits near that f0 instead of 6 of 8. Hints repeat every 4 s while the node stays lost, and they expire on the node by themselves, so a dropped radio packet costs nothing. A hint at the wrong frequency changes nothing, and noise or wind with a hint active still raises no alarm (tests in sentinel `tests/test_detector.py`).
+Runs ROAREE against simulated sensors observing one simulated UAS: an ESP32 receiver on a virtual serial port (real packet format, responds to HINTs), camera post-1, and the radar simulator. Nothing is transmitted.
 
-Packet: the normal 24-byte layout, type 4, `node_id` = target (0xFF = all), `f0` = frequency, `uptime_ms` = hold time. See `cuas/packet.py: make_hint`.
+## Dashboard
 
-## Status message (C2 → tracker, udp/47011)
+| Page | Content |
+|---|---|
+| `/` | System state (ALL CLEAR, POSSIBLE DRONE, DRONE TRACKED, DRONE LOST), per-sensor link status, site plan, tracks, event log. |
+| `/radar` | PPI scope: sweep, range rings, plots with 12 s persistence, masked sectors, fused tracks. |
+| `/camera` | Starts Visual-Tracker (`Start Tracker.command`, local machine only) and shows its live view. **Phone stands in for the drone** enables a phone as a test target. |
+| `/state.json`, `/radar.json`, `/api/tracker` | The same data as JSON. |
+| `/events`, `/events/radar` | Server-sent events, pushed on every fusion cycle. |
+
+Fusion runs on report arrival, at most 10 Hz. HINTs, tracker status and the event log run at 1 Hz.
+
+## Interfaces
+
+| Link | Direction | Message | Rate |
+|---|---|---|---|
+| ESP32 serial | node → C2 | `PKT <rssi> <snr> <hex>`: detections, LOST, heartbeats | as reported |
+| ESP32 serial | C2 → node | `TX <hex>`: HINT packet, transmitted by base_rx over LoRa | per node every 4 s while needed |
+| UDP 47010 | tracker → C2 | `visual`; an empty `tracks` list is the heartbeat | 5 Hz with tracks, 1 Hz idle |
+| UDP 47011 | C2 → tracker | `cue` per confirmed track | ≤ 1 Hz per track |
+| UDP 47011 | C2 → tracker | `status` | 1 Hz |
+| UDP 47012 | radar → C2 | `radar` plots: range, azimuth, elevation, radial velocity; an empty list is the heartbeat | per scan |
+| UDP 47013 | controller → C2 | `control` per change; `controls` heartbeat with switch positions | on change, 1 Hz |
+
+### Status (C2 → tracker, UDP 47011)
 
 ```json
 {"v": 1, "type": "status", "src": "sentinel-c2", "t": 1763400001.0, "seq": 42,
@@ -116,17 +95,63 @@ Packet: the normal 24-byte layout, type 4, `node_id` = target (0xFF = all), `f0`
  "tracks": 1, "confirmed": 1, "hints_sent": 3}
 ```
 
-`esp32` is `up`, `down` (port gone, reconnecting every 2 s) or `off` (no `--serial`). A tracker that hears nothing from the C2 for 3 s shows the base link as down.
+`esp32`: `up`, `down` (port lost, reconnect every 2 s) or `off` (no `--serial`). Trackers mark the C2 link down after 3 s without a status message.
+
+## Radar
+
+Message format and ingest: `sentinel_c2/radar.py`. A radar connects by sending `radar` messages to UDP 47012, directly or through an adapter.
+
+- Track initiation requires the same radar track ID on 3 consecutive reports with confidence ≥ 0.6.
+- Track updates require the same radar track ID on 2 consecutive reports. Single plots (birds, clutter) are displayed on the scope and not fused.
+- Radar updates count as sensor coverage for HINT generation.
+
+### Radar simulator
+
+```sh
+roaree --site path/to/site.json                                            # terminal 1
+python -m sentinel_c2.fake_radar --site path/to/site.json \
+    --at 0,-120 --shadow 270:340:120 --loop                                 # terminal 2
+```
+
+Flies the sentinel simulated UAS path in real time and sends UDP only. Models:
+
+- range-dependent probability of detection (radar equation, small-UAS RCS)
+- measurement noise and Doppler
+- false plots from birds and clutter
+- masking: `--shadow AZ_FROM:AZ_TO:BEYOND_M` blocks detection in that sector beyond that range
+
+Results (`tests/test_radar.py`, 20 randomized runs, 3 false plots per scan): no false confirmed tracks; target held ≥ 97% of the time; median position error 2–3 m. Replayed demo flights produce no duplicate tracks.
+
+## Hand controller
+
+[tango](https://github.com/H4D-Silent-Sentinel/tango) reads a TBS Tango 2 in USB joystick mode and sends controls to UDP 47013. Handling: `sentinel_c2/operator.py`.
+
+| Control | Effect |
+|---|---|
+| `mute_acoustic`, `mute_radar`, `mute_camera` | Reports from that sensor group are not fused while on. Shown as "Muted by operator". |
+| `node_select`, `node_toggle` | Select a listening node; ignore or restore its reports. |
+| `tak_out` | CoT output on or off (with `--cot`). |
+| `track_select` | Select a track on the dashboard. |
+
+The controller is reported lost after 2.5 s without a message or when tango reports it unplugged. All changes are written to the event log.
+
+## HINT downlink
+
+When a track has a camera or radar update within the last 3 s, ROAREE sends a HINT over LoRa to each node that is not detecting it and either reported that track's rotor frequency in the last 2 min or is within 300 m of the track.
+
+A HINT sets the node detector to re-confirm on 3 hits near the given f0 instead of 6 of 8, for 10 s. HINTs repeat every 4 s while needed and expire on the node. A HINT at the wrong frequency, or noise and wind during an active HINT, does not produce a detection (sentinel `tests/test_detector.py`).
+
+Packet: standard 24-byte layout, type 4; `node_id` = target (0xFF = all), `f0` = frequency, `uptime_ms` = hold time. See `cuas/packet.py: make_hint`.
+
+## Bench testing
+
+A listening node connected directly over USB can be passed as `--serial`. Nodes emit the same `PKT` lines as base_rx and accept the same `TX` lines. On the node console, `hint <f0> <seconds>` applies a HINT manually.
 
 ## Tests
 
 ```sh
 pip install -e ".[dev]"
-python -m pytest            # end-to-end test needs a Visual-Tracker checkout: VISUAL_TRACKER=/path/to/Visual-Tracker
+python -m pytest
 ```
 
-`tests/test_e2e.py` runs the whole chain on one machine: a fake base-receiver ESP32 on a virtual serial port, the hub, and Visual-Tracker's real `BaseLink`. It checks heartbeats, discovery, cues, hints arriving on the serial port as `TX` lines, and recovery after the ESP32 is unplugged and plugged back in.
-
-## Bench test with one node and no radio
-
-Plug a listening node straight into USB and pass its port as `--serial`. Nodes print the same `PKT` lines as base_rx and accept the same `TX` lines, so hints reach the node over the cable. On the node's serial console, `hint 200 10` applies a hint by hand.
+`tests/test_e2e.py` runs the full chain on one machine: simulated base receiver on a virtual serial port, the hub, and Visual-Tracker's `BaseLink`. It covers heartbeats, discovery, cues, HINT delivery as `TX` lines, and recovery after the receiver is disconnected. It requires a Visual-Tracker checkout: `VISUAL_TRACKER=/path/to/Visual-Tracker`.
