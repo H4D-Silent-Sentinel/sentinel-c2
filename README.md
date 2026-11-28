@@ -20,6 +20,11 @@ The fusion itself (packet ingest, loudness localization, Kalman tracker, map, TA
 | UDP 47012 | radar → C2 | `radar` plots: range, azimuth, elevation, radial velocity (an empty list is its heartbeat) | each scan |
 | UDP 47013 | hand controller → C2 | `control` on each switch or stick change; `controls` heartbeat with switch positions ([tango](https://github.com/H4D-Silent-Sentinel/tango)) | on change, plus 1 Hz |
 
+## Requirements
+
+- Python 3.10 or newer. Check with `python3 --version`. All dependencies have prebuilt packages for 3.10–3.14 on macOS, Windows and Linux. The `python3` that comes with macOS (Xcode command-line tools) is 3.9 and will not work; install a current Python from python.org or Homebrew.
+- git: `pip install` fetches [sentinel](https://github.com/H4D-Silent-Sentinel/sentinel) from GitHub.
+
 ## Operator app (no hardware needed to try it)
 
 ```sh
